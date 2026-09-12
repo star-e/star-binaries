@@ -32,5 +32,6 @@ target_link_libraries(ios_consumer PRIVATE ZLIB::ZLIBSTATIC "-framework UIKit")
 set_target_properties(ios_consumer PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.star-engine.binaries.smoke"
+  XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.star-engine.binaries.smoke"
   XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
   XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")

@@ -75,15 +75,18 @@ foreach(configuration Release Debug)
   if(TRIPLET STREQUAL "arm64-ios-simulator-star")
     set(app "${consumer_build}/${configuration}-iphonesimulator/ios_consumer.app")
     run(xcrun simctl install "${SIMULATOR_UDID}" "${app}")
-    execute_process(COMMAND xcrun simctl launch --console --terminate-running-process
+    execute_process(COMMAND xcrun simctl launch --console-pty --terminate-running-process
       "${SIMULATOR_UDID}" org.star-engine.binaries.smoke
       TIMEOUT 120 RESULT_VARIABLE launch_result
       OUTPUT_VARIABLE launch_output ERROR_VARIABLE launch_error)
     file(WRITE "${output}/${config_name}-simulator.log" "${launch_output}\n${launch_error}")
     message(STATUS "${launch_output}\n${launch_error}")
-    if(NOT launch_result STREQUAL "0" OR NOT launch_output MATCHES "STAR_IOS_SMOKE_PASSED"
-        OR launch_output MATCHES "STAR_IOS_SMOKE_FAILED")
-      message(FATAL_ERROR "${configuration} simulator smoke test failed: ${launch_result}")
+    set(launch_transcript "${launch_output}\n${launch_error}")
+    if(NOT launch_result STREQUAL "0" OR NOT launch_transcript MATCHES "STAR_IOS_SMOKE_PASSED"
+        OR launch_transcript MATCHES "STAR_IOS_SMOKE_FAILED")
+      message(FATAL_ERROR
+        "${configuration} simulator smoke test did not complete successfully. "
+        "simctl result: ${launch_result}; see ${output}/${config_name}-simulator.log")
     endif()
   endif()
 endforeach()
