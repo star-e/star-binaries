@@ -1,0 +1,81 @@
+name: Build iOS dependencies
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.triplet }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        triplet: [arm64-ios-star, arm64-ios-simulator-star]
+    env:
+      BUILD_TRIPLET: ${{ matrix.triplet }}
+      SIMULATOR_UDID: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Inspect Apple toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          cmake --version
+      - name: Boot iPhone simulator
+        if: matrix.triplet == 'arm64-ios-simulator-star'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = & xcrun simctl list devices available --json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list simulators' }
+          $devices = ($json -join "`n" | ConvertFrom-Json).devices
+          $device = $devices.PSObject.Properties |
+            Where-Object { $_.Name -like 'com.apple.CoreSimulator.SimRuntime.iOS-*' } |
+            ForEach-Object { $_.Value } |
+            Where-Object { $_.isAvailable -and $_.name -like 'iPhone*' } |
+            Select-Object -First 1
+          if (-not $device) { throw 'No available iPhone simulator in the selected Xcode image' }
+          "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
+          Write-Host "Using $($device.name): $($device.udid)"
+          if ($device.state -ne 'Booted') {
+            & xcrun simctl boot $device.udid
+            if ($LASTEXITCODE -ne 0) { throw 'Could not boot simulator' }
+          }
+          & xcrun simctl bootstatus $device.udid -b
+          if ($LASTEXITCODE -ne 0) { throw 'Simulator failed to finish booting' }
+      - name: Build SDK and validate Release and Debug consumers
+        shell: pwsh
+        run: |
+          $arguments = @("-DTRIPLET=$env:BUILD_TRIPLET")
+          if ($env:SIMULATOR_UDID) {
+            $arguments += "-DSIMULATOR_UDID=$env:SIMULATOR_UDID"
+          }
+          & cmake @arguments -P scripts/build-ios.cmake
+          if ($LASTEXITCODE -ne 0) { throw 'iOS build or consumer validation failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: star-binaries-${{ matrix.triplet }}-packages
+          if-no-files-found: error
+          path: |
+            out/${{ matrix.triplet }}/*.zip
+            out/${{ matrix.triplet }}/*.sha256
+      - name: Upload simulator logs
+        if: always() && matrix.triplet == 'arm64-ios-simulator-star'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-logs
+          if-no-files-found: warn
+          path: out/${{ matrix.triplet }}/*-simulator.log
+      - name: Shut down simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        run: xcrun simctl shutdown "$SIMULATOR_UDID"

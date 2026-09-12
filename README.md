@@ -11,8 +11,8 @@ and star-engine. This repository does not build Node addons or embed Node/V8 yet
 | macOS arm64 | dylib | Release + Debug | Xcode command-line tools; deployment target macOS 13.0 |
 
 The initial dependency is zlib. Its version is resolved by the pinned vcpkg
-baseline. Both configurations are built and tested on every run; other
-architectures are not yet part of this validation pipeline.
+baseline. Both configurations are built and tested on every desktop workflow
+run. Experimental iOS validation uses a separate workflow described below.
 
 ## Build locally
 
@@ -72,6 +72,8 @@ as described below. No npm package is published.
 
 ## Publish a release
 
+The iOS validation workflow below is separate and does not publish release assets.
+
 1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended version,
   such as `0.1.0`, then commit and push the changes (including the workflow).
 2. Create a matching stable version tag on that commit and push it:
@@ -99,6 +101,56 @@ Release URLs supply the version namespace, so asset filenames do not repeat the
 version. Downstream consumers should lock the tag, asset filename and SHA-256,
 not use a `latest` URL. GitHub settings and permissions, rather than this workflow
 alone, determine whether published assets are immutable.
+
+## iOS validation (experimental)
+
+The [iOS workflow](.github/workflows/ios.yml) runs on pushes, pull requests and
+manual dispatches. It builds zlib for two distinct
+targets on an Apple Silicon macOS runner with full Xcode:
+
+| Target | Linkage | Deployment target | Validation |
+| --- | --- | --- | --- |
+| arm64-ios-star | Static | iOS 15.0 | Release and Debug unsigned device App compilation/linking |
+| arm64-ios-simulator-star | Static | iOS 15.0 | Release and Debug App execution in an available iPhone simulator |
+
+Run **Actions > Build iOS dependencies > Run workflow**. These targets are
+experimental until the Apple build and simulator checks pass. This does not
+validate physical devices, App Store acceptance, or execution on iOS 15 itself;
+the simulator runtime comes from the selected runner's Xcode installation.
+No Apple signing credentials are required for these checks. Device installation
+requires a separately signed App and is not part of this workflow.
+
+The [iOS build script](scripts/build-ios.cmake) uses the same pinned vcpkg baseline
+as desktop builds but separate [device](triplets/arm64-ios-star.cmake) and
+[simulator](triplets/arm64-ios-simulator-star.cmake) triplets. Each SDK ZIP contains
+headers, Release libraries in `lib/`, Debug libraries in `debug/lib/`, CMake
+exports, licenses and provenance. ZIPs are extracted into a relocated directory
+before consumer builds; checksum files are written only after validation passes.
+There are no dynamic runtime packages or XCFrameworks in this initial pipeline.
+Device and simulator ARM64 libraries are not interchangeable.
+
+The [test App](tests/ios/CMakeLists.txt) reuses the desktop zlib round-trip test.
+Simulator execution must emit `STAR_IOS_SMOKE_PASSED` within 120 seconds;
+launching the App alone is not considered a passing test. Logs are uploaded even
+when validation fails. The workflow uploads SDK artifacts only on success and
+does not change the existing desktop release job.
+
+To build locally on an Apple Silicon Mac with full Xcode selected:
+
+```sh
+git submodule update --init --recursive
+cmake -DTRIPLET=arm64-ios-star -P scripts/build-ios.cmake
+xcrun simctl list devices available
+xcrun simctl boot <simulator-uuid>
+xcrun simctl bootstatus <simulator-uuid> -b
+cmake -DTRIPLET=arm64-ios-simulator-star -DSIMULATOR_UDID=<simulator-uuid> -P scripts/build-ios.cmake
+xcrun simctl shutdown <simulator-uuid>
+```
+
+Skip `simctl boot` if that simulator is already booted. Consume the extracted SDK
+with an iOS CMake toolchain and the matching `iphoneos` or `iphonesimulator`
+sysroot, then use `find_package(ZLIB CONFIG REQUIRED)` and `ZLIB::ZLIB`. This
+pipeline adds no V8 dependency and does not modify downstream dependency locks.
 
 ## Consume an SDK
 
