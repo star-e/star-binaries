@@ -11,8 +11,8 @@ and star-engine. This repository does not build Node addons or embed Node/V8 yet
 | macOS arm64 | dylib | Release | Xcode command-line tools; deployment target macOS 13.0 |
 
 The initial dependency is zlib. Its version is resolved by the pinned vcpkg
-baseline. Debug packages, other architectures, and formal releases are not yet
-part of this initial validation pipeline.
+baseline. Debug packages and other architectures are not yet part of this
+initial validation pipeline.
 
 ## Build locally
 
@@ -58,8 +58,39 @@ The script does not generate dSYM bundles or strip embedded debug information.
 License files may retain their original documentation subdirectory.
 
 CI uploads all ZIPs and checksums only after the tests succeed.
-Artifacts are temporary CI outputs, not permanent
-release URLs. No GitHub Release or npm package is published automatically.
+Artifacts are temporary CI outputs. Ordinary branch pushes, pull requests and
+manual runs do not publish releases. Version tag pushes publish GitHub Releases
+as described below. No npm package is published.
+
+## Publish a release
+
+1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended version,
+  such as `0.1.0`, then commit and push the changes (including the workflow).
+2. Create a matching stable version tag on that commit and push it:
+
+  ```sh
+  git tag -a v0.1.0 -m "Star Binaries 0.1.0"
+  git push origin v0.1.0
+  ```
+
+3. Check both platform builds and the `release` job in GitHub Actions.
+
+Only a push of a `vX.Y.Z` tag can publish. The tag must match the manifest version;
+prerelease tags are not supported yet. The release job waits for every matrix
+build to succeed, downloads artifacts from that same workflow run, requires SDK
+and runtime packages for both platforms, and verifies all SHA-256 files.
+
+It creates a draft release with the ZIPs and checksums, then publishes it after
+upload succeeds. An existing release is not overwritten. If publication fails
+after creating a draft, inspect it before recovery; rerunning will not overwrite
+that draft either. Never replace assets of an already published release; issue
+a new version for corrections. Repository rules must allow the release job's
+`GITHUB_TOKEN` to write releases. Other jobs retain read-only permissions.
+
+Release URLs supply the version namespace, so asset filenames do not repeat the
+version. Downstream consumers should lock the tag, asset filename and SHA-256,
+not use a `latest` URL. GitHub settings and permissions, rather than this workflow
+alone, determine whether published assets are immutable.
 
 ## Consume an SDK
 
