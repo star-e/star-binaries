@@ -1,0 +1,102 @@
+# Star Binaries
+
+Build and package third-party C++ dependencies for consumption by star-platforms
+and star-engine. This repository does not build Node addons or embed Node/V8 yet.
+
+## Initial targets
+
+| Target | Linkage | Configuration | Requirements |
+| --- | --- | --- | --- |
+| Windows x64 | DLL, dynamic CRT (/MD) | Release | Visual Studio C++ tools and Windows SDK |
+| macOS arm64 | dylib | Release | Xcode command-line tools; deployment target macOS 13.0 |
+
+The initial dependency is zlib. Its version is resolved by the pinned vcpkg
+baseline. Debug packages, other architectures, and formal releases are not yet
+part of this initial validation pipeline.
+
+## Build locally
+
+Install Git and CMake 3.24 or newer, with cmake and ctest on PATH. Run from this
+repository:
+
+```sh
+git submodule update --init --recursive
+```
+
+Windows (PowerShell, using a Visual Studio generator):
+
+```powershell
+cmake -DTRIPLET=x64-windows-star -P scripts/build.cmake
+```
+
+macOS (use an Apple Silicon host for the native execution test):
+
+```sh
+cmake -DTRIPLET=arm64-osx-star -P scripts/build.cmake
+```
+
+The same [script](scripts/build.cmake) runs in [GitHub Actions](.github/workflows/build.yml).
+It bootstraps the local vcpkg submodule and packages only the target installation,
+without the vcpkg executable, host build tools, manuals or general documentation.
+Each package has a ZIP and SHA-256 file. The script extracts the archives into a
+different directory, checks their contents, and builds/runs the
+[consumer tests](tests/consumer/CMakeLists.txt) without a vcpkg toolchain.
+Tests verify both SDK consumption and deployment into the extracted runtime
+package using a zlib compression/decompression round-trip. The test executable
+is installed after archiving and is not included in the published packages.
+
+Outputs are under `out/<triplet>/`:
+
+| ZIP suffix | Contents | Intended consumer |
+| --- | --- | --- |
+| `-sdk.zip` | Headers, link libraries, dynamic libraries, CMake/pkg-config metadata, licenses and provenance | star-platforms / star-engine builds |
+| `-runtime.zip` | Dynamic libraries, licenses, dependency metadata and provenance | Application deployment |
+| `-symbols.zip` | Available PDB/dSYM files, licenses, dependency metadata and provenance | Debugging and crash analysis |
+
+Symbol packages are omitted when the installation provides no separate symbols.
+The script does not generate dSYM bundles or strip embedded debug information.
+License files may retain their original documentation subdirectory.
+
+CI uploads all ZIPs and checksums only after the tests succeed.
+Artifacts are temporary CI outputs, not permanent
+release URLs. No GitHub Release or npm package is published automatically.
+
+## Consume an SDK
+
+Verify the ZIP against its SHA-256 file and extract it. Set `CMAKE_PREFIX_PATH`
+directly to the extracted SDK root (`star-binaries-<triplet>-release-sdk`), then use:
+
+```cmake
+find_package(ZLIB REQUIRED)
+target_link_libraries(your_target PRIVATE ZLIB::ZLIB)
+```
+
+On Windows, deploy the zlib DLL beside your executable or provide an explicit
+runtime search strategy. On macOS, deploy the dylib and configure install RPATH
+for the final application. The runtime smoke test uses `@loader_path/../lib` on
+macOS. The runtime package does not bundle the Windows Visual C++ Redistributable
+or system libraries; applications must provide their required prerequisites.
+Tests do not cover final application packaging, code signing, or notarization.
+
+## Versioning and customization
+
+- [tools/vcpkg](tools/vcpkg) is a Git submodule. Update its recorded commit and
+  `builtin-baseline` in [vcpkg.json](vcpkg.json) together. Do not use submodule
+  `--remote` updates in CI.
+- Project-owned [triplets](triplets) select architecture, linkage and configuration.
+- Add custom ports and patches to this repository and register overlay ports in
+  [vcpkg-configuration.json](vcpkg-configuration.json) when needed. Do not modify
+  generated sources or the submodule's official ports for project patches.
+- Local vcpkg binary caching uses vcpkg defaults/environment configuration. CI
+  currently has no persistent cross-job binary cache; that can be added when the
+  dependency set grows.
+- SDK packages include target-package metadata and dependency license files.
+  `provenance/` also contains the manifest, triplets and source/tool revisions.
+  Uncommitted local changes are not represented by the source commit alone.
+- Hosted runner images and compilers are not immutable. CI logs record the actual
+  compiler selected by vcpkg and the consumer; these initial packages are not a
+  promise of bit-for-bit reproducibility or minimum-OS runtime certification.
+
+For historical fixes, branch from the affected release tag, retain the original
+dependency baseline, add the patch, and publish a new package revision rather
+than replacing an existing release artifact.

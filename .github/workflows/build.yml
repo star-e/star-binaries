@@ -1,0 +1,34 @@
+name: Build dependencies
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            triplet: x64-windows-star
+          - os: macos-15
+            triplet: arm64-osx-star
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build, package and test relocated SDK
+        run: cmake -DTRIPLET=${{ matrix.triplet }} -P scripts/build.cmake
+      - uses: actions/upload-artifact@v4
+        with:
+          name: star-binaries-${{ matrix.triplet }}-release
+          if-no-files-found: error
+          path: |
+            out/${{ matrix.triplet }}/*.zip
+            out/${{ matrix.triplet }}/*.sha256
