@@ -7,12 +7,12 @@ endif()
 if(NOT STAR_CONFIGURATION MATCHES "^(Release|Debug)$")
   message(FATAL_ERROR "Pass STAR_CONFIGURATION=Release or Debug")
 endif()
-find_package(ZLIB CONFIG REQUIRED PATHS "${CMAKE_PREFIX_PATH}/share/zlib"
+find_package(ZLIB CONFIG REQUIRED COMPONENTS static PATHS "${CMAKE_PREFIX_PATH}/share/zlib"
   NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 string(TOUPPER "${STAR_CONFIGURATION}" configuration_upper)
-get_target_property(selected_library ZLIB::ZLIB "IMPORTED_LOCATION_${configuration_upper}")
-get_target_property(include_paths ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
-get_target_property(library_type ZLIB::ZLIB TYPE)
+get_target_property(selected_library ZLIB::ZLIBSTATIC "IMPORTED_LOCATION_${configuration_upper}")
+get_target_property(include_paths ZLIB::ZLIBSTATIC INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(library_type ZLIB::ZLIBSTATIC TYPE)
 if(NOT library_type STREQUAL "STATIC_LIBRARY" OR NOT EXISTS "${selected_library}")
   message(FATAL_ERROR "Missing static zlib for ${STAR_CONFIGURATION}")
 endif()
@@ -28,7 +28,7 @@ set_source_files_properties(../consumer/main.cpp PROPERTIES
   COMPILE_DEFINITIONS "main=star_zlib_roundtrip")
 target_compile_features(ios_consumer PRIVATE cxx_std_20)
 target_compile_options(ios_consumer PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
-target_link_libraries(ios_consumer PRIVATE ZLIB::ZLIB "-framework UIKit")
+target_link_libraries(ios_consumer PRIVATE ZLIB::ZLIBSTATIC "-framework UIKit")
 set_target_properties(ios_consumer PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.star-engine.binaries.smoke"

@@ -149,7 +149,9 @@ xcrun simctl shutdown <simulator-uuid>
 
 Skip `simctl boot` if that simulator is already booted. Consume the extracted SDK
 with an iOS CMake toolchain and the matching `iphoneos` or `iphonesimulator`
-sysroot, then use `find_package(ZLIB CONFIG REQUIRED)` and `ZLIB::ZLIB`. This
+sysroot, then use `find_package(ZLIB CONFIG REQUIRED COMPONENTS static)` and
+`ZLIB::ZLIBSTATIC`. For explicit SDK paths outside the sysroot, see the consumer's
+`NO_CMAKE_FIND_ROOT_PATH` lookup. This
 pipeline adds no V8 dependency and does not modify downstream dependency locks.
 
 ## Consume an SDK

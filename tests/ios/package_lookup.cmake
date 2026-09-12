@@ -24,3 +24,33 @@ if(NOT ZLIB_FOUND OR NOT STAR_LOOKUP_FIXTURE_FOUND)
   message(FATAL_ERROR "Consumer did not find the explicit SDK config")
 endif()
 message(STATUS "Original root-only lookup failed; iOS consumer SDK lookup passed")
+
+file(MAKE_DIRECTORY "${TEST_ROOT}/sdk/include" "${TEST_ROOT}/sdk/lib"
+  "${TEST_ROOT}/fixture")
+file(WRITE "${TEST_ROOT}/sdk/lib/libz.a" "fixture")
+file(WRITE "${TEST_ROOT}/sdk/share/zlib/ZLIBConfig.cmake" "
+if(NOT ZLIB_FIND_COMPONENTS STREQUAL \"static\")
+  message(FATAL_ERROR \"Consumer must request static zlib\")
+endif()
+add_library(ZLIB::ZLIBSTATIC STATIC IMPORTED)
+set_target_properties(ZLIB::ZLIBSTATIC PROPERTIES
+  IMPORTED_LOCATION_RELEASE \"${TEST_ROOT}/sdk/lib/libz.a\"
+  INTERFACE_INCLUDE_DIRECTORIES \"${TEST_ROOT}/sdk/include\")
+")
+string(FIND "${consumer}" "find_package(ZLIB" lookup_start)
+string(FIND "${consumer}" "add_executable(" lookup_end)
+math(EXPR lookup_length "${lookup_end} - ${lookup_start}")
+string(SUBSTRING "${consumer}" ${lookup_start} ${lookup_length} validation)
+file(WRITE "${TEST_ROOT}/fixture/CMakeLists.txt" "
+cmake_minimum_required(VERSION 3.24)
+project(StaticSDKLookup NONE)
+set(CMAKE_PREFIX_PATH \"${TEST_ROOT}/sdk\")
+set(CMAKE_FIND_ROOT_PATH \"${TEST_ROOT}/sysroot\")
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+set(STAR_CONFIGURATION Release)
+${validation}
+")
+execute_process(COMMAND "${CMAKE_COMMAND}" --fresh
+  -S "${TEST_ROOT}/fixture" -B "${TEST_ROOT}/fixture-build"
+  COMMAND_ERROR_IS_FATAL ANY)
+message(STATUS "Consumer static target and SDK property checks passed")
