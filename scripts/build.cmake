@@ -46,53 +46,25 @@ endif()
 # Install dependencies, then package only the target's files (not host tools).
 run("${vcpkg}" install "--triplet=${TRIPLET}"
   "--x-manifest-root=${root}" "--x-install-root=${output}/installed")
-set(base "star-binaries-${TRIPLET}-release")
+set(base "star-binaries-${TRIPLET}")
 set(installed "${output}/installed/${TRIPLET}")
 set(sdk "${output}/${base}-sdk")
-set(runtime "${output}/${base}-runtime")
-set(symbols "${output}/${base}-symbols")
-# Remove previous package outputs, including the old full vcpkg export.
-file(REMOVE_RECURSE "${output}/${base}" "${sdk}" "${runtime}" "${symbols}")
-file(REMOVE "${output}/${base}.zip" "${output}/${base}.zip.sha256")
-foreach(kind sdk runtime symbols)
-  file(REMOVE "${output}/${base}-${kind}.zip" "${output}/${base}-${kind}.zip.sha256")
-endforeach()
-file(MAKE_DIRECTORY "${sdk}" "${runtime}")
+# Keep both configurations together so upstream CMake exports remain valid.
+file(REMOVE_RECURSE "${sdk}")
+file(GLOB old_archives "${output}/${base}*.zip" "${output}/${base}*.zip.sha256")
+if(old_archives)
+  file(REMOVE ${old_archives})
+endif()
+file(MAKE_DIRECTORY "${sdk}")
 file(COPY "${installed}/" DESTINATION "${sdk}"
   PATTERN "*.pdb" EXCLUDE
   PATTERN "*.dSYM" EXCLUDE)
 file(REMOVE_RECURSE "${sdk}/share/doc" "${sdk}/share/man")
 
-# Preserve relative library paths and symlinks for runtime deployment.
-file(GLOB_RECURSE runtime_files LIST_DIRECTORIES false RELATIVE "${installed}"
-  "${installed}/bin/*.dll" "${installed}/lib/*.dylib")
-if(NOT runtime_files)
-  message(FATAL_ERROR "No dynamic libraries found for ${TRIPLET}")
-endif()
-foreach(relative IN LISTS runtime_files)
-  get_filename_component(directory "${relative}" DIRECTORY)
-  file(COPY "${installed}/${relative}" DESTINATION "${runtime}/${directory}")
-endforeach()
 file(GLOB_RECURSE metadata LIST_DIRECTORIES false RELATIVE "${installed}"
   "${installed}/share/*/copyright" "${installed}/share/*/LICENSE*"
   "${installed}/share/*/vcpkg.spdx.json"
   "${installed}/share/*/vcpkg-spdx-resources.json")
-foreach(relative IN LISTS metadata)
-  get_filename_component(directory "${relative}" DIRECTORY)
-  file(COPY "${installed}/${relative}" DESTINATION "${runtime}/${directory}")
-endforeach()
-
-# Keep available debug symbols separate; do not publish empty symbol packages.
-file(GLOB_RECURSE symbol_files LIST_DIRECTORIES false RELATIVE "${installed}"
-  "${installed}/*.pdb")
-file(GLOB_RECURSE symbol_bundles LIST_DIRECTORIES true RELATIVE "${installed}"
-  "${installed}/*.dSYM")
-list(FILTER symbol_bundles INCLUDE REGEX "\\.dSYM$")
-list(APPEND symbol_files ${symbol_bundles})
-foreach(relative IN LISTS symbol_files)
-  get_filename_component(directory "${relative}" DIRECTORY)
-  file(COPY "${installed}/${relative}" DESTINATION "${symbols}/${directory}")
-endforeach()
 
 # Include build inputs and revisions for tracing the package's origin.
 file(COPY "${root}/vcpkg.json" "${root}/vcpkg-configuration.json"
@@ -101,20 +73,13 @@ execute_process(COMMAND git -C "${root}" rev-parse HEAD
   OUTPUT_VARIABLE source_revision OUTPUT_STRIP_TRAILING_WHITESPACE
   COMMAND_ERROR_IS_FATAL ANY)
 file(WRITE "${sdk}/provenance/build.txt"
-  "source=${source_revision}\nvcpkg=${revision}\ntriplet=${TRIPLET}\ncmake=${CMAKE_VERSION}\nhost=${CMAKE_HOST_SYSTEM}\n")
-file(COPY "${sdk}/provenance" DESTINATION "${runtime}")
-set(kinds sdk runtime)
-if(symbol_files)
-  file(COPY "${sdk}/provenance" "${runtime}/share" DESTINATION "${symbols}")
-  list(APPEND kinds symbols)
-endif()
+  "source=${source_revision}\nvcpkg=${revision}\ntriplet=${TRIPLET}\nconfigurations=Release,Debug\ncmake=${CMAKE_VERSION}\nhost=${CMAKE_HOST_SYSTEM}\n")
 
 # Archive with relative paths and provide a checksum for download verification.
 set(relocated "${output}/relocated")
 file(REMOVE_RECURSE "${relocated}")
 file(MAKE_DIRECTORY "${relocated}")
-foreach(kind IN LISTS kinds)
-  set(package "${base}-${kind}")
+function(archive_package package kind)
   set(archive "${output}/${package}.zip")
   execute_process(COMMAND "${CMAKE_COMMAND}" -E tar cf "${archive}"
     --format=zip "${package}" WORKING_DIRECTORY "${output}"
@@ -141,24 +106,74 @@ foreach(kind IN LISTS kinds)
       message(FATAL_ERROR "Non-runtime payload in runtime package: ${entry}")
     endif()
   endforeach()
-endforeach()
-# Test the extracted packages, not the original installation.
+endfunction()
+archive_package("${base}-sdk" sdk)
+
+foreach(configuration Release Debug)
+  string(TOLOWER "${configuration}" config_name)
+  set(config_root "${installed}")
+  if(configuration STREQUAL "Debug")
+    set(config_root "${installed}/debug")
+  endif()
+  set(runtime "${output}/${base}-${config_name}-runtime")
+  set(symbols "${output}/${base}-${config_name}-symbols")
+  file(REMOVE_RECURSE "${runtime}" "${symbols}")
+  file(MAKE_DIRECTORY "${runtime}")
+
+  # Flatten the chosen configuration for deployment, preserving dylib symlinks.
+  file(GLOB_RECURSE runtime_files LIST_DIRECTORIES false RELATIVE "${config_root}"
+    "${config_root}/bin/*.dll" "${config_root}/lib/*.dylib")
+  if(NOT runtime_files)
+    message(FATAL_ERROR "No ${configuration} dynamic libraries found for ${TRIPLET}")
+  endif()
+  foreach(relative IN LISTS runtime_files)
+    get_filename_component(directory "${relative}" DIRECTORY)
+    file(COPY "${config_root}/${relative}" DESTINATION "${runtime}/${directory}")
+  endforeach()
+  foreach(relative IN LISTS metadata)
+    get_filename_component(directory "${relative}" DIRECTORY)
+    file(COPY "${installed}/${relative}" DESTINATION "${runtime}/${directory}")
+  endforeach()
+  file(COPY "${sdk}/provenance" DESTINATION "${runtime}")
+  file(WRITE "${runtime}/provenance/configuration.txt" "${configuration}\n")
+  archive_package("${base}-${config_name}-runtime" runtime)
+
+  # Search bin/lib only, so Release symbols cannot include debug/ contents.
+  file(GLOB_RECURSE symbol_files LIST_DIRECTORIES false RELATIVE "${config_root}"
+    "${config_root}/bin/*.pdb" "${config_root}/lib/*.pdb")
+  file(GLOB_RECURSE symbol_bundles LIST_DIRECTORIES true RELATIVE "${config_root}"
+    "${config_root}/bin/*.dSYM" "${config_root}/lib/*.dSYM")
+  list(FILTER symbol_bundles INCLUDE REGEX "\\.dSYM$")
+  list(APPEND symbol_files ${symbol_bundles})
+  if(symbol_files)
+    foreach(relative IN LISTS symbol_files)
+      get_filename_component(directory "${relative}" DIRECTORY)
+      file(COPY "${config_root}/${relative}" DESTINATION "${symbols}/${directory}")
+    endforeach()
+    file(COPY "${runtime}/provenance" "${runtime}/share" DESTINATION "${symbols}")
+    archive_package("${base}-${config_name}-symbols" symbols)
+  endif()
+
+# Test each configuration against the extracted SDK and its matching runtime.
 set(prefix "${relocated}/${base}-sdk")
-set(runtime_prefix "${relocated}/${base}-runtime")
+set(runtime_prefix "${relocated}/${base}-${config_name}-runtime")
+set(consumer_build "${output}/consumer-${config_name}")
 set(platform_options)
 if(CMAKE_HOST_APPLE)
   list(APPEND platform_options -DCMAKE_OSX_ARCHITECTURES=arm64
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_BUILD_TYPE=Release)
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 "-DCMAKE_BUILD_TYPE=${configuration}")
 elseif(CMAKE_HOST_WIN32)
   list(APPEND platform_options -A x64)
 endif()
 # Clear cached paths and consume via CMAKE_PREFIX_PATH, without a vcpkg toolchain.
-run("${CMAKE_COMMAND}" --fresh -S "${root}/tests/consumer" -B "${output}/consumer"
+run("${CMAKE_COMMAND}" --fresh -S "${root}/tests/consumer" -B "${consumer_build}"
   "-DCMAKE_PREFIX_PATH=${prefix}"
   "-DSTAR_RUNTIME_ROOT=${runtime_prefix}"
+  "-DSTAR_CONFIGURATION=${configuration}"
   ${platform_options})
-run("${CMAKE_COMMAND}" --build "${output}/consumer" --config Release)
-run("${CMAKE_COMMAND}" --install "${output}/consumer" --config Release
+run("${CMAKE_COMMAND}" --build "${consumer_build}" --config "${configuration}")
+run("${CMAKE_COMMAND}" --install "${consumer_build}" --config "${configuration}"
   --prefix "${runtime_prefix}")
-run("${CMAKE_CTEST_COMMAND}" --test-dir "${output}/consumer"
-  -C Release --output-on-failure)
+run("${CMAKE_CTEST_COMMAND}" --test-dir "${consumer_build}"
+  -C "${configuration}" --output-on-failure)
+endforeach()

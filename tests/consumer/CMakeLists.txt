@@ -1,27 +1,37 @@
 cmake_minimum_required(VERSION 3.24)
 project(StarBinariesConsumer LANGUAGES CXX)
 
-set(ZLIB_USE_STATIC_LIBS OFF)
-find_package(ZLIB REQUIRED)
-foreach(dependency_path IN ITEMS "${ZLIB_INCLUDE_DIR}" "${ZLIB_LIBRARY_RELEASE}")
+if(NOT DEFINED STAR_CONFIGURATION)
+  set(STAR_CONFIGURATION Release)
+endif()
+if(NOT STAR_CONFIGURATION MATCHES "^(Release|Debug)$")
+  message(FATAL_ERROR "Unsupported test configuration: ${STAR_CONFIGURATION}")
+endif()
+find_package(ZLIB CONFIG REQUIRED PATHS "${CMAKE_PREFIX_PATH}/share/zlib" NO_DEFAULT_PATH)
+string(TOUPPER "${STAR_CONFIGURATION}" configuration_upper)
+get_target_property(selected_library ZLIB::ZLIB "IMPORTED_LOCATION_${configuration_upper}")
+get_target_property(include_paths ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(library_type ZLIB::ZLIB TYPE)
+if(NOT library_type STREQUAL "SHARED_LIBRARY" OR NOT EXISTS "${selected_library}")
+  message(FATAL_ERROR "Missing shared zlib for ${STAR_CONFIGURATION}")
+endif()
+foreach(dependency_path IN ITEMS ${include_paths} "${selected_library}")
   cmake_path(IS_PREFIX CMAKE_PREFIX_PATH "${dependency_path}" NORMALIZE from_sdk)
   if(NOT from_sdk)
     message(FATAL_ERROR "Dependency resolved outside the SDK: ${dependency_path}")
   endif()
 endforeach()
-if(APPLE AND NOT ZLIB_LIBRARY_RELEASE MATCHES "\\.dylib$")
-  message(FATAL_ERROR "Expected shared zlib, got ${ZLIB_LIBRARY_RELEASE}")
+if(APPLE AND NOT selected_library MATCHES "\\.dylib$")
+  message(FATAL_ERROR "Expected shared zlib, got ${selected_library}")
 endif()
 
 add_executable(consumer main.cpp)
 target_compile_features(consumer PRIVATE cxx_std_20)
 target_link_libraries(consumer PRIVATE ZLIB::ZLIB)
 if(WIN32)
-  find_file(zlib_runtime NAMES z.dll zlib1.dll zlib.dll
-    PATHS "${CMAKE_PREFIX_PATH}/bin" NO_DEFAULT_PATH REQUIRED)
   add_custom_command(TARGET consumer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${zlib_runtime}" $<TARGET_FILE_DIR:consumer>
+      $<TARGET_FILE:ZLIB::ZLIB> $<TARGET_FILE_DIR:consumer>
     VERBATIM)
 endif()
 

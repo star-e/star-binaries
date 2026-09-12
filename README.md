@@ -7,12 +7,12 @@ and star-engine. This repository does not build Node addons or embed Node/V8 yet
 
 | Target | Linkage | Configuration | Requirements |
 | --- | --- | --- | --- |
-| Windows x64 | DLL, dynamic CRT (/MD) | Release | Visual Studio C++ tools and Windows SDK |
-| macOS arm64 | dylib | Release | Xcode command-line tools; deployment target macOS 13.0 |
+| Windows x64 | DLL, dynamic CRT (/MD in Release, /MDd in Debug) | Release + Debug | Visual Studio C++ tools and Windows SDK |
+| macOS arm64 | dylib | Release + Debug | Xcode command-line tools; deployment target macOS 13.0 |
 
 The initial dependency is zlib. Its version is resolved by the pinned vcpkg
-baseline. Debug packages and other architectures are not yet part of this
-initial validation pipeline.
+baseline. Both configurations are built and tested on every run; other
+architectures are not yet part of this validation pipeline.
 
 ## Build locally
 
@@ -42,16 +42,24 @@ Each package has a ZIP and SHA-256 file. The script extracts the archives into a
 different directory, checks their contents, and builds/runs the
 [consumer tests](tests/consumer/CMakeLists.txt) without a vcpkg toolchain.
 Tests verify both SDK consumption and deployment into the extracted runtime
-package using a zlib compression/decompression round-trip. The test executable
+package for each configuration using a zlib compression/decompression round-trip.
+The test executable
 is installed after archiving and is not included in the published packages.
 
 Outputs are under `out/<triplet>/`:
 
 | ZIP suffix | Contents | Intended consumer |
 | --- | --- | --- |
-| `-sdk.zip` | Headers, link libraries, dynamic libraries, CMake/pkg-config metadata, licenses and provenance | star-platforms / star-engine builds |
-| `-runtime.zip` | Dynamic libraries, licenses, dependency metadata and provenance | Application deployment |
-| `-symbols.zip` | Available PDB/dSYM files, licenses, dependency metadata and provenance | Debugging and crash analysis |
+| `-sdk.zip` | Shared headers/metadata, Release libraries in bin/lib, Debug libraries in debug/bin and debug/lib, licenses and provenance | star-platforms / star-engine builds |
+| `-release-runtime.zip` | Release dynamic libraries, licenses, metadata and provenance | Application deployment |
+| `-debug-runtime.zip` | Debug dynamic libraries, licenses, metadata and provenance | Developer testing |
+| `-release-symbols.zip`, `-debug-symbols.zip` | Available PDB/dSYM files for the named configuration, licenses and provenance | Debugging and crash analysis |
+
+The SDK is named `star-binaries-<triplet>-sdk.zip`, replacing the old
+`star-binaries-<triplet>-release-sdk.zip` name. Keeping both configurations in one
+SDK preserves upstream CMake exports that reference both sets of libraries.
+Runtime packages flatten the selected configuration into bin/lib for deployment.
+Debug is a separate build, not merely a Release library with a symbol file.
 
 Symbol packages are omitted when the installation provides no separate symbols.
 The script does not generate dSYM bundles or strip embedded debug information.
@@ -78,7 +86,7 @@ as described below. No npm package is published.
 Only a push of a `vX.Y.Z` tag can publish. The tag must match the manifest version;
 prerelease tags are not supported yet. The release job waits for every matrix
 build to succeed, downloads artifacts from that same workflow run, requires SDK
-and runtime packages for both platforms, and verifies all SHA-256 files.
+and both Release/Debug runtime packages for both platforms, and verifies all SHA-256 files.
 
 It creates a draft release with the ZIPs and checksums, then publishes it after
 upload succeeds. An existing release is not overwritten. If publication fails
@@ -95,19 +103,31 @@ alone, determine whether published assets are immutable.
 ## Consume an SDK
 
 Verify the ZIP against its SHA-256 file and extract it. Set `CMAKE_PREFIX_PATH`
-directly to the extracted SDK root (`star-binaries-<triplet>-release-sdk`), then use:
+directly to the extracted SDK root (`star-binaries-<triplet>-sdk`), then use:
 
 ```cmake
-find_package(ZLIB REQUIRED)
+find_package(ZLIB CONFIG REQUIRED)
 target_link_libraries(your_target PRIVATE ZLIB::ZLIB)
 ```
+
+The config package automatically selects the matching Debug or Release library.
+Use `--config Debug` / `--config Release` with multi-config generators, or set
+`CMAKE_BUILD_TYPE` with single-config generators. Match the Windows consumer CRT
+to the selected configuration. The older module-mode `find_package(ZLIB)` may
+not discover the debug subdirectory without additional hints.
 
 On Windows, deploy the zlib DLL beside your executable or provide an explicit
 runtime search strategy. On macOS, deploy the dylib and configure install RPATH
 for the final application. The runtime smoke test uses `@loader_path/../lib` on
 macOS. The runtime package does not bundle the Windows Visual C++ Redistributable
 or system libraries; applications must provide their required prerequisites.
+Windows Debug packages require the developer's debug CRT installation and are
+not intended for end-user redistribution with the normal VC++ Redistributable.
 Tests do not cover final application packaging, code signing, or notarization.
+
+Publish these changes under a new release version; do not replace v0.1.0 assets.
+Existing star-platforms locks remain unchanged until explicitly upgraded to the
+new SDK filename, tag and checksum.
 
 ## Versioning and customization
 
