@@ -33,6 +33,9 @@ int star_zlib_roundtrip();
                 NSLog(@"Cannot write smoke result: %@", error);
                 std::exit(EXIT_FAILURE);
             }
+            // Let simctl finish acknowledging launch. The runner reads the result
+            // and terminates this process, including when the test failed.
+            return;
         }
         std::exit(result);
     });
