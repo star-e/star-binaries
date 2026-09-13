@@ -73,15 +73,15 @@ is published.
 ## Publish a release
 
 Create and publish the release yourself on the GitHub website. The
-[release workflow](.github/workflows/release.yml) listens only for
-`release: published`, then builds all six targets and attaches their packages to
-that existing release using the reusable desktop, Android and iOS workflows.
+[release workflow](.github/workflows/release.yml) checks every pushed tag and
+builds all six targets using the reusable desktop, Android and iOS workflows.
+Only a `release: published` event enables the separate asset upload job.
 
 1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended new version,
    then commit and push the source and workflow changes.
 2. Open **Releases > Draft a new release** on GitHub. Select an existing matching
    `vX.Y.Z` tag, or create a new tag on the intended commit using the tag selector.
-   Pushing a tag locally is also fine and does not trigger release automation.
+   Creating a tag on GitHub or pushing it locally starts validation, never publication.
 3. Enter the title and release notes, then click **Publish release**.
    Saving a draft alone does not trigger the workflow.
 4. Check **Release all platforms** in Actions. Windows, macOS, Android and iOS
@@ -90,12 +90,23 @@ that existing release using the reusable desktop, Android and iOS workflows.
 The tag must match the manifest version at that commit; prerelease tags are not
 supported yet. All targets build the same resolved tag commit. Make sure that
 commit includes the release workflow and reusable build workflows.
-The upload job downloads artifacts from the same workflow run and requires:
+The asset validation job downloads artifacts from the same workflow run and requires:
 
 - Windows x64 and macOS arm64: SDK and Release/Debug runtime packages.
 - Android arm64/x64 and iOS device/simulator arm64: static SDK packages containing
   both Release and Debug libraries.
 - SHA-256 files for every package; available desktop symbol packages are included.
+
+To check readiness before publishing, create/push the tag first and wait for
+**Release all platforms** to pass: stable tag format, manifest version match,
+all six target builds and consumer tests, package completeness and SHA-256 checks.
+Every tag push is checked; tags outside the supported `vX.Y.Z` format fail the
+version check. These checks run after tag creation and cannot prevent the tag
+from being created or disable GitHub's **Publish release** button. Saving a draft
+alone is not a trigger, although creating its tag can trigger tag validation.
+Publishing later starts a fresh build and validation run before uploading assets.
+Tag validation jobs have read-only repository permissions; only the upload job
+for a published release receives `contents: write`.
 
 The release becomes visible when you click **Publish release**; binary assets
 arrive only after all builds and checksum checks pass. If a build fails, the

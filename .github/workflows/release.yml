@@ -1,6 +1,8 @@
 name: Release all platforms
 
 on:
+  push:
+    tags: ['**']
   release:
     types: [published]
 
@@ -8,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.event_name }}-${{ github.event.release.tag_name || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -17,11 +19,11 @@ jobs:
     outputs:
       source_sha: ${{ steps.version.outputs.source_sha }}
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name) }}
+          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name || github.ref_name) }}
       - name: Validate release version
         id: version
         shell: bash
@@ -56,15 +58,9 @@ jobs:
     with:
       source_ref: ${{ needs.validate.outputs.source_sha }}
 
-  release:
+  verify-assets:
     needs: [validate, desktop, android, ios]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,6 +91,23 @@ jobs:
             test -s "$archive.sha256"
           done
           sha256sum --check --strict -- *.sha256
+
+  upload:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: verify-assets
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: star-binaries-*-packages
+          merge-multiple: true
+          path: release-assets
       - name: Upload assets to the published release
         shell: bash
         run: |
