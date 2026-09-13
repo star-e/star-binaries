@@ -19,7 +19,7 @@ jobs:
         triplet: [arm64-android-star, x64-android-star]
     env:
       BUILD_TRIPLET: ${{ matrix.triplet }}
-      NDK_VERSION: 28.2.13676358
+      NDK_VERSION: 30.0.16248370
     steps:
       - uses: actions/checkout@v4
         with:

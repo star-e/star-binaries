@@ -157,7 +157,7 @@ pipeline adds no V8 dependency and does not modify downstream dependency locks.
 ## Android validation (experimental)
 
 The [Android workflow](.github/workflows/android.yml) runs on pushes, pull requests
-and manual dispatches using Ubuntu 24.04 and NDK `28.2.13676358` (r28c).
+and manual dispatches using Ubuntu 24.04 and NDK `30.0.16248370` (r30).
 It builds the pinned zlib dependency for Android 9 (API 28) or newer:
 
 | Target | ABI | Linkage | Validation |
@@ -177,7 +177,7 @@ For example, in PowerShell:
 
 ```powershell
 git submodule update --init --recursive
-$env:ANDROID_NDK_HOME = "$env:LOCALAPPDATA/Android/Sdk/ndk/28.2.13676358"
+$env:ANDROID_NDK_HOME = "$env:LOCALAPPDATA/Android/Sdk/ndk/30.0.16248370"
 cmake -DTRIPLET=arm64-android-star -P scripts/build-android.cmake
 adb devices
 cmake -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build-android.cmake
