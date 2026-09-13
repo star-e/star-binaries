@@ -1,6 +1,6 @@
 {
   "name": "star-binaries",
-  "version-string": "0.1.1",
+  "version-string": "0.1.2",
   "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271",
   "dependencies": ["zlib"]
 }
