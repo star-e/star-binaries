@@ -1,0 +1,70 @@
+foreach(configuration Release Debug)
+  string(TOLOWER "${configuration}" config)
+  set(consumer "${output}/consumer-${config}")
+  set(options)
+  if(TRIPLET MATCHES "windows")
+    list(APPEND options -G "Visual Studio 17 2022" -A x64)
+    set(executable "${consumer}/${configuration}/v8_consumer.exe")
+  elseif(TRIPLET MATCHES "android")
+    set(abi arm64-v8a)
+    if(TRIPLET STREQUAL "x64-android-star")
+      set(abi x86_64)
+    endif()
+    list(APPEND options -G Ninja "-DCMAKE_BUILD_TYPE=${configuration}" "-DCMAKE_TOOLCHAIN_FILE=${ndk}/build/cmake/android.toolchain.cmake"
+      "-DANDROID_ABI=${abi}" -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared)
+    set(executable "${consumer}/v8_consumer")
+  elseif(TRIPLET MATCHES "ios")
+    set(sysroot iphoneos)
+    if(TRIPLET STREQUAL "arm64-ios-simulator-star")
+      set(sysroot iphonesimulator)
+    endif()
+    list(APPEND options -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 "-DCMAKE_OSX_SYSROOT=${sysroot}"
+      -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO)
+  else()
+    list(APPEND options -G Ninja "-DCMAKE_BUILD_TYPE=${configuration}" -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
+  endif()
+  run_at("${root}" "${CMAKE_COMMAND}" --fresh -S "${root}/tests/v8" -B "${consumer}"
+    "-DSTAR_SDK_ROOT=${prefix}" "-DSTAR_TRIPLET=${TRIPLET}" ${options})
+  run_at("${root}" "${CMAKE_COMMAND}" --build "${consumer}" --config "${configuration}" --parallel "${JOBS}")
+  if(TRIPLET MATCHES "(windows|osx)")
+    run_at("${root}" "${CMAKE_CTEST_COMMAND}" --test-dir "${consumer}"
+      -C "${configuration}" --output-on-failure)
+  elseif(TRIPLET MATCHES "android" AND ANDROID_SERIAL)
+    # Reject mismatched devices before deploying the executable.
+    execute_process(COMMAND adb -s "${ANDROID_SERIAL}" shell getprop ro.product.cpu.abi
+      OUTPUT_VARIABLE device_abi OUTPUT_STRIP_TRAILING_WHITESPACE
+      TIMEOUT 30 COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND adb -s "${ANDROID_SERIAL}" shell getprop ro.build.version.sdk
+      OUTPUT_VARIABLE device_api OUTPUT_STRIP_TRAILING_WHITESPACE
+      TIMEOUT 30 COMMAND_ERROR_IS_FATAL ANY)
+    if(NOT device_abi STREQUAL abi OR NOT device_api MATCHES "^[0-9]+$" OR device_api LESS 28)
+      message(FATAL_ERROR "Android device must match ${abi} and API 28+")
+    endif()
+    set(remote "/data/local/tmp/star-v8-${config}")
+    run_at("${root}" adb -s "${ANDROID_SERIAL}" shell mkdir -p "${remote}")
+    run_at("${root}" adb -s "${ANDROID_SERIAL}" push "${executable}" "${remote}/v8_consumer")
+    # Include every component dependency and the same NDK C++ runtime as V8.
+    file(GLOB shared_libraries "${consumer}/*.so")
+    if(NOT shared_libraries)
+      message(FATAL_ERROR "No Android shared runtime libraries were deployed")
+    endif()
+    foreach(library IN LISTS shared_libraries)
+      run_at("${root}" adb -s "${ANDROID_SERIAL}" push "${library}" "${remote}/")
+    endforeach()
+    execute_process(COMMAND adb -s "${ANDROID_SERIAL}" shell "chmod 700 ${remote}/v8_consumer && LD_LIBRARY_PATH=${remote} ${remote}/v8_consumer"
+      OUTPUT_VARIABLE smoke_output ERROR_VARIABLE smoke_error RESULT_VARIABLE smoke_result TIMEOUT 120)
+    file(WRITE "${output}/${config}-android.log" "${smoke_output}\n${smoke_error}")
+    execute_process(COMMAND adb -s "${ANDROID_SERIAL}" shell rm -rf "${remote}" TIMEOUT 15)
+    if(NOT smoke_result STREQUAL "0" OR NOT smoke_output MATCHES "STAR_V8_SMOKE_PASSED")
+      message(FATAL_ERROR "V8 execution failed: ${smoke_output}\n${smoke_error}")
+    endif()
+  elseif(TRIPLET STREQUAL "arm64-ios-simulator-star")
+    include("${root}/scripts/ios-simulator-smoke.cmake")
+    run_at("${root}" xcrun simctl install "${SIMULATOR_UDID}"
+      "${consumer}/${configuration}-iphonesimulator/v8_consumer.app")
+    star_run_ios_smoke("${SIMULATOR_UDID}" "${output}/${config}-simulator.log")
+  else()
+    message(STATUS "${TRIPLET} ${configuration}: consumer compile/link passed; device execution not performed")
+  endif()
+endforeach()

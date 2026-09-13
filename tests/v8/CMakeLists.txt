@@ -1,0 +1,66 @@
+cmake_minimum_required(VERSION 3.24)
+project(StarV8Consumer LANGUAGES CXX)
+find_package(V8 CONFIG REQUIRED PATHS "${STAR_SDK_ROOT}/share/v8"
+  NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+if(NOT V8_STAR_TRIPLET STREQUAL STAR_TRIPLET)
+  message(FATAL_ERROR "V8 SDK target does not match the consumer")
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  set(expected_type STATIC_LIBRARY)
+else()
+  set(expected_type SHARED_LIBRARY)
+endif()
+get_target_property(library_type V8::V8 TYPE)
+if(NOT library_type STREQUAL expected_type)
+  message(FATAL_ERROR "Expected ${expected_type}, got ${library_type}")
+endif()
+foreach(config RELEASE DEBUG)
+  get_target_property(library V8::V8 IMPORTED_LOCATION_${config})
+  cmake_path(IS_PREFIX STAR_SDK_ROOT "${library}" NORMALIZE in_sdk)
+  if(NOT in_sdk OR NOT EXISTS "${library}")
+    message(FATAL_ERROR "Missing or non-relocated V8 library: ${library}")
+  endif()
+  if(WIN32)
+    get_target_property(implib V8::V8 IMPORTED_IMPLIB_${config})
+    cmake_path(IS_PREFIX STAR_SDK_ROOT "${implib}" NORMALIZE in_sdk)
+    if(NOT in_sdk OR NOT EXISTS "${implib}")
+      message(FATAL_ERROR "Missing or non-relocated V8 import library: ${implib}")
+    endif()
+  endif()
+endforeach()
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  enable_language(OBJCXX)
+  add_executable(v8_consumer MACOSX_BUNDLE main.cpp ../ios/main.mm)
+  target_compile_definitions(v8_consumer PRIVATE STAR_V8_IOS star_zlib_roundtrip=star_v8_smoke)
+  target_compile_options(v8_consumer PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+  target_link_libraries(v8_consumer PRIVATE "-framework UIKit")
+  set_target_properties(v8_consumer PROPERTIES
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/../ios/Info.plist.in"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "org.star-engine.binaries.smoke"
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.star-engine.binaries.smoke"
+    XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+    XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")
+else()
+  add_executable(v8_consumer main.cpp)
+endif()
+target_compile_definitions(v8_consumer PRIVATE STAR_V8_EXPECTED_VERSION="${V8_VERSION}")
+target_link_libraries(v8_consumer PRIVATE V8::V8)
+set_target_properties(v8_consumer PROPERTIES
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+if(V8_LINKAGE STREQUAL "SHARED")
+  set(runtime_files "$<$<CONFIG:Debug>:${V8_RUNTIME_FILES_DEBUG}>;$<$<NOT:$<CONFIG:Debug>>:${V8_RUNTIME_FILES_RELEASE}>")
+  add_custom_command(TARGET v8_consumer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${runtime_files}" $<TARGET_FILE_DIR:v8_consumer>
+    COMMAND_EXPAND_LISTS VERBATIM)
+  if(APPLE)
+    # Test deployment beside the executable, without the SDK's absolute RPATH.
+    set_target_properties(v8_consumer PROPERTIES
+      BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "@loader_path")
+  endif()
+endif()
+enable_testing()
+if(NOT CMAKE_CROSSCOMPILING)
+  add_test(NAME v8-javascript COMMAND v8_consumer)
+  set_tests_properties(v8-javascript PROPERTIES TIMEOUT 120
+    PASS_REGULAR_EXPRESSION STAR_V8_SMOKE_PASSED)
+endif()

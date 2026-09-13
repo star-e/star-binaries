@@ -1,0 +1,44 @@
+diff --git a/BUILD.gn b/BUILD.gn
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -25,7 +25,10 @@ component("absl") {
+   if (is_component_build) {
+     public_configs = [ ":absl_component_build" ]
+ 
+-    if (is_win && is_clang) {
++    if (is_win && !use_custom_libcxx) {
++      sources = [ "$root_gen_dir/star-absl.def" ]
++      deps = [ ":star_absl_exports" ]
++    } else if (is_win && is_clang) {
+       if (current_cpu == "x64") {
+         if (is_debug) {
+           sources = [ "symbols_x64_dbg.def" ]
+@@ -55,6 +58,19 @@ component("absl") {
+   }
+ }
+ 
++if (is_win && is_component_build && !use_custom_libcxx) {
++  action("star_absl_exports") {
++    script = "//tools/star-absl-exports.py"
++    deps = [ ":absl_component_deps" ]
++    outputs = [ "$root_gen_dir/star-absl.def" ]
++    args = [
++      rebase_path("$root_out_dir/obj/third_party/abseil-cpp", root_build_dir),
++      rebase_path("$root_out_dir/environment.$current_cpu", root_build_dir),
++      rebase_path(outputs[0], root_build_dir),
++    ]
++  }
++}
++
+ group("absl_component_deps") {
+   public_deps = [
+     "//third_party/abseil-cpp/absl/algorithm",
+@@ -140,7 +156,7 @@ group("absl_component_deps") {
+         [ "//third_party/abseil-cpp/absl/debugging:failure_signal_handler" ]
+   }
+ 
+-  visibility = [ ":absl" ]
++  visibility = [ ":absl", ":star_absl_exports" ]
+ }
+ 
+ # Some third-party libraries use additional parts of absl that are banned in

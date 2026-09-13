@@ -1,7 +1,115 @@
 # Star Binaries
 
 Build and package third-party C++ dependencies for consumption by star-platforms
-and star-engine. This repository does not build Node addons or embed Node/V8 yet.
+and star-engine. V8 has a separate pinned GN build and SDK pipeline described below.
+This repository does not build Node addons or Node.js.
+
+## V8 13.6 stable
+
+[v8-version.cmake](v8-version.cmake) pins **13.6.233.17** to commit
+`b0a55a7dad7f536cce1f9aaddba89894c8533946`, the
+[upstream 13.6 stable branch revision](https://chromium.googlesource.com/v8/v8/+/refs/tags/13.6.233.17).
+This is the requested historical 13.6 line, not the latest V8 major release.
+The vcpkg baseline only provides V8 9.1, so
+[build-v8.cmake](scripts/build-v8.cmake) uses upstream depot_tools, gclient,
+GN and Ninja. The depot_tools revision also matches this release's DEPS.
+
+Windows, macOS and Android produce **shared component libraries**; iOS device
+and simulator produce **static `v8_monolith` libraries**. Each SDK includes Release
+and Debug libraries, public headers, configuration-specific `v8-gn.h`, licenses,
+build arguments and revisions. ICU data and the startup snapshot are embedded;
+no external `icudtl.dat` or `snapshot_blob.bin` is needed.
+
+All six targets explicitly enable `v8_enable_pointer_compression=true` and
+`v8_enable_sandbox=true`. The exported CMake target supplies
+`V8_COMPRESS_POINTERS=1` and `V8_ENABLE_SANDBOX=1`, together with the generated
+header's other ABI settings. This includes iOS; address-space reservations still
+need physical-device validation. iOS remains JITless, without WebAssembly.
+
+| Triplet | Build host | V8 mode | Consumer validation |
+| --- | --- | --- | --- |
+| x64-windows-star | Windows, VS 2022 C++ tools + Windows SDK debugging tools | DLL, JIT, WebAssembly, /MD or /MDd | Execute Release + Debug |
+| arm64-osx-star | Apple Silicon, full Xcode | dylib, JIT, WebAssembly, macOS 13.0+ | Execute Release + Debug |
+| arm64-android-star | Linux x64, NDK 30.0.16248370 | .so, JIT, WebAssembly, API 28+, shared libc++ | Compile/link; optional device execution |
+| x64-android-star | Linux x64, same NDK | .so, JIT, WebAssembly, API 28+, shared libc++ | Execute on x86_64 emulator/device |
+| arm64-ios-star | Apple Silicon, full Xcode | Static, JITless/lite, iOS 15.0+ | Unsigned App compile/link |
+| arm64-ios-simulator-star | Apple Silicon, full Xcode | Static, same JITless mode | Execute in iPhone simulator |
+
+Install Git, CMake 3.24+ and Ninja (for non-Windows consumer builds). Ensure
+access to chromium.googlesource.com, Google Storage and CIPD. The first build
+downloads a large source/toolchain tree; allow several GB of downloads, tens of
+GB of disk space, and considerably more time than the zlib build. V8 uses its
+DEPS-pinned Clang with the platform's C++ standard library. Windows component
+builds use the project's /MD and /MDd CRT settings without a CRT patch.
+The generated-header patch adds V8's per-toolchain `gen/include` search path
+when the upstream external configuration header option is enabled.
+The cppgc patch loads that header before checking its young-generation macro.
+For Windows shared builds, the Abseil patch generates its DLL exports from the
+actual objects using the selected Visual Studio `dumpbin`, instead of Chromium's
+precomputed libc++ symbol list. This keeps the SDK compatible with MSVC's STL.
+The Windows inline-export patch materializes public inline API members in one
+DLL translation unit so MSVC consumers can link their imported calls.
+
+Run from this repository (each command builds **both** Release and Debug):
+
+```sh
+# Windows
+cmake -DTRIPLET=x64-windows-star -P scripts/build-v8.cmake
+# Apple Silicon Mac
+cmake -DTRIPLET=arm64-osx-star -P scripts/build-v8.cmake
+cmake -DTRIPLET=arm64-ios-star -P scripts/build-v8.cmake
+cmake -DTRIPLET=arm64-ios-simulator-star -DSIMULATOR_UDID=<booted-uuid> -P scripts/build-v8.cmake
+# Linux: export ANDROID_NDK_HOME, install adb and boot a matching emulator
+cmake -DTRIPLET=arm64-android-star -P scripts/build-v8.cmake
+cmake -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build-v8.cmake
+```
+
+Optional `-DJOBS=4` controls compilation parallelism (default 4).
+`-DPRINT_ARGS=ON` prints both GN configurations without downloading or building.
+`-DSKIP_SYNC=ON` reuses an already synchronized checkout on the same host/target;
+do not use it after changing platform dependencies. Build one triplet at a time
+in a checkout; a lock protects the shared gclient tree.
+
+[Build V8 13.6](.github/workflows/v8.yml) builds all six targets on relevant PRs,
+main pushes and manual dispatch. These are separate CI artifacts; the existing
+zlib release workflow does not publish V8 assets. Apple and Android builds need
+their corresponding CI hosts before they can be considered validated.
+
+Outputs are `out/v8/<triplet>/star-v8-13.6.233.17-<triplet>-<linkage>-sdk.zip`
+(`linkage` is `static` on iOS and `shared` elsewhere) and its
+SHA-256 file. The checksum and successful CI upload are gated on consumer tests
+against a relocated extraction. Device-only targets validate compilation and
+linking; they do not establish physical-device execution or App Store acceptance.
+The smoke test checks the exact V8 version, JavaScript, ArrayBuffer and `Intl`.
+
+Consume the extracted SDK using its matching architecture, deployment target,
+C++ standard library and Windows CRT:
+
+```cmake
+find_package(V8 CONFIG REQUIRED PATHS "${STAR_V8_SDK}/share/v8"
+  NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+target_link_libraries(your_target PRIVATE V8::V8)
+```
+
+The target supplies C++20, `V8_GN_HEADER`, both requested feature macros, shared
+import definitions where appropriate, and the matching Release/Debug include
+and library paths. Set `CMAKE_BUILD_TYPE` or `--config`;
+do not mix generated configuration headers or reuse a device SDK for a simulator.
+
+Shared SDKs include V8, libplatform, libbase and their component dependencies
+(including ICU, zlib and Abseil). Windows uses `bin/` and `debug/bin/` for DLLs,
+with import libraries in `lib/` and `debug/lib/`. macOS and Android use `lib/`
+and `debug/lib/` for dynamic libraries. Android retains GN's `.cr.so` filenames
+and includes the matching NDK `libc++_shared.so`; downstream apps must use the
+same shared STL. `V8_RUNTIME_FILES_RELEASE` and `V8_RUNTIME_FILES_DEBUG` list the
+files to deploy beside the executable, or into the application's native-library
+directory. Deploy all listed dependencies. Windows still requires the matching
+Visual C++ runtime; Microsoft's CRT/debugger DLLs are not bundled.
+
+Desktop tests deploy all component libraries beside the consumer; macOS uses
+`@loader_path`. Android execution deploys the same set to the device. The iOS
+static library is linked into the App. The pipeline currently produces SDK ZIPs,
+without separate runtime/symbol ZIPs, XCFrameworks or AARs.
 
 ## Initial targets
 

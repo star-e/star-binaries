@@ -1,0 +1,12 @@
+diff --git a/src/heap/cppgc/remembered-set.cc b/src/heap/cppgc/remembered-set.cc
+--- a/src/heap/cppgc/remembered-set.cc
++++ b/src/heap/cppgc/remembered-set.cc
+@@ -2,6 +2,8 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "include/v8config.h"
++
+ #if defined(CPPGC_YOUNG_GENERATION)
+ 
+ #include "src/heap/cppgc/remembered-set.h"
