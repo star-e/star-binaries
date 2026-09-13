@@ -44,6 +44,9 @@ builds use the project's /MD and /MDd CRT settings without a CRT patch.
 The generated-header patch adds V8's per-toolchain `gen/include` search path
 when the upstream external configuration header option is enabled.
 The cppgc patch loads that header before checking its young-generation macro.
+The iOS host-toolchain patch keeps macOS host generators static in both Release
+and Debug. Upstream otherwise forces Debug host component builds, conflicting
+with the inherited `v8_monolithic=true` setting before Torque can be generated.
 For Android with the NDK STL, the unwind patch explicitly links the matching
 NDK r30 Clang 21 `libunwind.a` for x64 or arm64. Chromium disables automatic
 unwind linking, while its own unwind dependency is only brought in by its custom
