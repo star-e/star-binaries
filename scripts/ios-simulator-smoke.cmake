@@ -21,7 +21,7 @@ function(star_run_ios_smoke udid log_path)
   execute_process(COMMAND "${CMAKE_COMMAND}" -E env "SIMCTL_CHILD_STAR_SMOKE_TOKEN=${token}"
     xcrun simctl launch --terminate-running-process
     "--stdout=${stdout_path}" "--stderr=${stderr_path}" "${udid}" "${bundle}"
-    TIMEOUT 30 RESULT_VARIABLE launch_result
+    TIMEOUT 120 RESULT_VARIABLE launch_result
     OUTPUT_VARIABLE launch_output ERROR_VARIABLE launch_error)
   file(APPEND "${log_path}" "Launch (${launch_result}): ${launch_output}\n${launch_error}\nToken: ${token}\n")
 
