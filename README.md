@@ -44,6 +44,10 @@ builds use the project's /MD and /MDd CRT settings without a CRT patch.
 The generated-header patch adds V8's per-toolchain `gen/include` search path
 when the upstream external configuration header option is enabled.
 The cppgc patch loads that header before checking its young-generation macro.
+For Android with the NDK STL, the unwind patch explicitly links the matching
+NDK r30 Clang 21 `libunwind.a` for x64 or arm64. Chromium disables automatic
+unwind linking, while its own unwind dependency is only brought in by its custom
+libc++abi. Unwind symbols remain private to each shared library.
 For Windows shared builds, the Abseil patch generates its DLL exports from the
 actual objects using the selected Visual Studio `dumpbin`, instead of Chromium's
 precomputed libc++ symbol list. This keeps the SDK compatible with MSVC's STL.
