@@ -202,11 +202,11 @@ packages, AARs or release assets in this initial Android workflow.
 To consume an extracted SDK, configure with the
 [NDK CMake toolchain](https://developer.android.com/ndk/guides/cmake), matching
 `ANDROID_ABI`, `ANDROID_PLATFORM=android-28`, `ANDROID_STL=c++_static`, and
-`CMAKE_BUILD_TYPE=Release` or `Debug`. Set `CMAKE_PREFIX_PATH` to the SDK root:
+`CMAKE_BUILD_TYPE=Release` or `Debug`. Set `STAR_SDK_ROOT` to the SDK root:
 
 ```cmake
 find_package(ZLIB CONFIG REQUIRED COMPONENTS static
-  PATHS "${CMAKE_PREFIX_PATH}/share/zlib"
+  PATHS "${STAR_SDK_ROOT}/share/zlib"
   NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 target_link_libraries(your_target PRIVATE ZLIB::ZLIBSTATIC)
 ```

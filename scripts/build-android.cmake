@@ -94,7 +94,7 @@ foreach(configuration Release Debug)
     "-DCMAKE_TOOLCHAIN_FILE=${ndk}/build/cmake/android.toolchain.cmake"
     "-DANDROID_ABI=${abi}" "-DANDROID_PLATFORM=android-${VCPKG_CMAKE_SYSTEM_VERSION}"
     -DANDROID_STL=c++_static "-DCMAKE_BUILD_TYPE=${configuration}"
-    "-DCMAKE_PREFIX_PATH=${relocated}/${base}")
+    "-DSTAR_SDK_ROOT=${relocated}/${base}")
   run("${CMAKE_COMMAND}" --build "${consumer_build}" --config "${configuration}")
   if(adb)
     set(remote "/data/local/tmp/star-binaries-${TRIPLET}-${config_name}")
