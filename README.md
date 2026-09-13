@@ -66,36 +66,50 @@ The script does not generate dSYM bundles or strip embedded debug information.
 License files may retain their original documentation subdirectory.
 
 CI uploads all ZIPs and checksums only after the tests succeed.
-Artifacts are temporary CI outputs. Ordinary branch pushes, pull requests and
-manual runs do not publish releases. Version tag pushes publish GitHub Releases
-as described below. No npm package is published.
+Artifacts are temporary CI outputs. Branch pushes, tag pushes, pull requests and
+manual platform builds never create or publish GitHub Releases. No npm package
+is published.
 
 ## Publish a release
 
-The mobile validation workflows below are separate and do not publish release assets.
+Create and publish the release yourself on the GitHub website. The
+[release workflow](.github/workflows/release.yml) listens only for
+`release: published`, then builds all six targets and attaches their packages to
+that existing release using the reusable desktop, Android and iOS workflows.
 
-1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended version,
-  such as `0.1.0`, then commit and push the changes (including the workflow).
-2. Create a matching stable version tag on that commit and push it:
+1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended new version,
+   then commit and push the source and workflow changes.
+2. Open **Releases > Draft a new release** on GitHub. Select an existing matching
+   `vX.Y.Z` tag, or create a new tag on the intended commit using the tag selector.
+   Pushing a tag locally is also fine and does not trigger release automation.
+3. Enter the title and release notes, then click **Publish release**.
+   Saving a draft alone does not trigger the workflow.
+4. Check **Release all platforms** in Actions. Windows, macOS, Android and iOS
+   builds must all succeed before packages are uploaded to the release.
 
-  ```sh
-  git tag -a v0.1.0 -m "Star Binaries 0.1.0"
-  git push origin v0.1.0
-  ```
+The tag must match the manifest version at that commit; prerelease tags are not
+supported yet. All targets build the same resolved tag commit. Make sure that
+commit includes the release workflow and reusable build workflows.
+The upload job downloads artifacts from the same workflow run and requires:
 
-3. Check both platform builds and the `release` job in GitHub Actions.
+- Windows x64 and macOS arm64: SDK and Release/Debug runtime packages.
+- Android arm64/x64 and iOS device/simulator arm64: static SDK packages containing
+  both Release and Debug libraries.
+- SHA-256 files for every package; available desktop symbol packages are included.
 
-Only a push of a `vX.Y.Z` tag can publish. The tag must match the manifest version;
-prerelease tags are not supported yet. The release job waits for every matrix
-build to succeed, downloads artifacts from that same workflow run, requires SDK
-and both Release/Debug runtime packages for both platforms, and verifies all SHA-256 files.
+The release becomes visible when you click **Publish release**; binary assets
+arrive only after all builds and checksum checks pass. If a build fails, the
+release remains published without the complete set of binary assets. The
+workflow does not change your release title, notes, or publication state.
+Uploading never overwrites same-name assets. If an upload partially fails,
+inspect existing assets before recovery; rerunning may encounter filename
+conflicts. Never replace already published binaries; publish a new version for
+corrections.
 
-It creates a draft release with the ZIPs and checksums, then publishes it after
-upload succeeds. An existing release is not overwritten. If publication fails
-after creating a draft, inspect it before recovery; rerunning will not overwrite
-that draft either. Never replace assets of an already published release; issue
-a new version for corrections. Repository rules must allow the release job's
-`GITHUB_TOKEN` to write releases. Other jobs retain read-only permissions.
+This upload-after-publication flow requires releases to allow adding assets
+once published; it cannot attach binaries to an immutable release. Repository
+rules must also allow the upload job's `GITHUB_TOKEN` to write release assets.
+Other jobs retain read-only permissions.
 
 Release URLs supply the version namespace, so asset filenames do not repeat the
 version. Downstream consumers should lock the tag, asset filename and SHA-256,
@@ -104,7 +118,7 @@ alone, determine whether published assets are immutable.
 
 ## iOS validation (experimental)
 
-The [iOS workflow](.github/workflows/ios.yml) runs on pushes, pull requests and
+The [iOS workflow](.github/workflows/ios.yml) runs on branch pushes, pull requests and
 manual dispatches. It builds zlib for two distinct
 targets on an Apple Silicon macOS runner with full Xcode:
 
@@ -133,7 +147,8 @@ The [test App](tests/ios/CMakeLists.txt) reuses the desktop zlib round-trip test
 Simulator execution must emit `STAR_IOS_SMOKE_PASSED` within 120 seconds;
 launching the App alone is not considered a passing test. Logs are uploaded even
 when validation fails. The workflow uploads SDK artifacts only on success and
-does not change the existing desktop release job.
+is also called by the release workflow, which publishes both iOS SDKs after all
+platforms pass validation.
 
 To build locally on an Apple Silicon Mac with full Xcode selected:
 
@@ -197,7 +212,8 @@ CMake exports, licenses and provenance including the NDK version, ABI and API
 level. Consumers compile against a relocated extraction without the vcpkg
 toolchain. Checksums and CI artifacts are produced only after validation passes;
 runtime logs are uploaded even on test failure. There are no separate runtime
-packages, AARs or release assets in this initial Android workflow.
+packages or AARs. The release workflow also calls this workflow and publishes
+both Android SDKs after all platforms pass validation.
 
 To consume an extracted SDK, configure with the
 [NDK CMake toolchain](https://developer.android.com/ndk/guides/cmake), matching

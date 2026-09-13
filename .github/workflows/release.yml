@@ -1,0 +1,102 @@
+name: Release all platforms
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.version.outputs.source_sha }}
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name) }}
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a stable version tag such as v0.1.0" >&2
+            exit 1
+          fi
+          version=$(node -p 'require("./vcpkg.json")["version-string"]')
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "Tag must match vcpkg.json version-string ($version)" >&2
+            exit 1
+          fi
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  desktop:
+    needs: validate
+    uses: ./.github/workflows/build.yml
+    with:
+      source_ref: ${{ needs.validate.outputs.source_sha }}
+
+  android:
+    needs: validate
+    uses: ./.github/workflows/android.yml
+    with:
+      source_ref: ${{ needs.validate.outputs.source_sha }}
+
+  ios:
+    needs: validate
+    uses: ./.github/workflows/ios.yml
+    with:
+      source_ref: ${{ needs.validate.outputs.source_sha }}
+
+  release:
+    needs: [validate, desktop, android, ios]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: star-binaries-*-packages
+          merge-multiple: true
+          path: release-assets
+      - name: Validate release assets
+        shell: bash
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          for triplet in x64-windows-star arm64-osx-star; do
+            for suffix in sdk release-runtime debug-runtime; do
+              package="star-binaries-$triplet-$suffix.zip"
+              test -s "$package"
+              test -s "$package.sha256"
+            done
+          done
+          for triplet in arm64-android-star x64-android-star arm64-ios-star arm64-ios-simulator-star; do
+            package="star-binaries-$triplet-sdk.zip"
+            test -s "$package"
+            test -s "$package.sha256"
+          done
+          for archive in *.zip; do
+            test -s "$archive.sha256"
+          done
+          sha256sum --check --strict -- *.sha256
+      - name: Upload assets to the published release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" release-assets/*.zip release-assets/*.sha256

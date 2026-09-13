@@ -2,8 +2,16 @@ name: Build iOS dependencies
 
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Source commit to build (defaults to the triggering ref)
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          ref: ${{ inputs.source_ref }}
       - name: Inspect Apple toolchain
         run: |
           test "$(uname -m)" = arm64
