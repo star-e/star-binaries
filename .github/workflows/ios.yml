@@ -33,6 +33,15 @@ jobs:
         with:
           submodules: true
           ref: ${{ inputs.source_ref }}
+      - name: Record source and trigger
+        shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          echo "event=$GITHUB_EVENT_NAME"
+          echo "trigger_ref=$GITHUB_REF"
+          echo "requested_source=$SOURCE_REF"
+          git log -1 --format='checked_out=%H %s'
       - name: Inspect Apple toolchain
         run: |
           test "$(uname -m)" = arm64
