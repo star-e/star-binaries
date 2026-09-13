@@ -70,6 +70,10 @@ Artifacts are temporary CI outputs. Branch pushes, tag pushes, pull requests and
 manual platform builds never create or publish GitHub Releases. No npm package
 is published.
 
+Platform workflows build on pushes to `main` and on pull requests. A push to a
+development branch does not start a separate build; updating an open PR triggers
+its PR checks. Manual platform runs and reusable release calls remain available.
+
 ## Publish a release
 
 Create and publish the release yourself on the GitHub website. The
@@ -129,7 +133,7 @@ alone, determine whether published assets are immutable.
 
 ## iOS validation (experimental)
 
-The [iOS workflow](.github/workflows/ios.yml) runs on branch pushes, pull requests and
+The [iOS workflow](.github/workflows/ios.yml) runs on pushes to `main`, pull requests and
 manual dispatches. It builds zlib for two distinct
 targets on an Apple Silicon macOS runner with full Xcode:
 
@@ -182,7 +186,7 @@ pipeline adds no V8 dependency and does not modify downstream dependency locks.
 
 ## Android validation (experimental)
 
-The [Android workflow](.github/workflows/android.yml) runs on pushes, pull requests
+The [Android workflow](.github/workflows/android.yml) runs on pushes to `main`, pull requests
 and manual dispatches using Ubuntu 24.04 and NDK `30.0.16248370` (r30).
 It builds the pinned zlib dependency for Android 9 (API 28) or newer:
 
