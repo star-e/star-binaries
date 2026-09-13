@@ -2,8 +2,16 @@ name: Build Android dependencies
 
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Source commit to build (defaults to the triggering ref)
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          ref: ${{ inputs.source_ref }}
       - name: Set up Java for Android SDK tools
         uses: actions/setup-java@v4
         with:
