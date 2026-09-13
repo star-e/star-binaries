@@ -12,7 +12,7 @@ and star-engine. This repository does not build Node addons or embed Node/V8 yet
 
 The initial dependency is zlib. Its version is resolved by the pinned vcpkg
 baseline. Both configurations are built and tested on every desktop workflow
-run. Experimental iOS validation uses a separate workflow described below.
+run. Experimental iOS and Android validation use separate workflows described below.
 
 ## Build locally
 
@@ -72,7 +72,7 @@ as described below. No npm package is published.
 
 ## Publish a release
 
-The iOS validation workflow below is separate and does not publish release assets.
+The mobile validation workflows below are separate and do not publish release assets.
 
 1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended version,
   such as `0.1.0`, then commit and push the changes (including the workflow).
@@ -154,7 +154,69 @@ sysroot, then use `find_package(ZLIB CONFIG REQUIRED COMPONENTS static)` and
 `NO_CMAKE_FIND_ROOT_PATH` lookup. This
 pipeline adds no V8 dependency and does not modify downstream dependency locks.
 
-## Consume an SDK
+## Android validation (experimental)
+
+The [Android workflow](.github/workflows/android.yml) runs on pushes, pull requests
+and manual dispatches using Ubuntu 24.04 and NDK `30.0.16248370` (r30).
+It builds the pinned zlib dependency for Android 9 (API 28) or newer:
+
+| Target | ABI | Linkage | Validation |
+| --- | --- | --- | --- |
+| arm64-android-star | arm64-v8a | Static | Release and Debug native consumer compilation/linking |
+| x64-android-star | x86_64 | Static | Release and Debug native consumer execution on an API 28 emulator |
+
+Run **Actions > Build Android dependencies > Run workflow**. These targets remain
+experimental until the NDK builds and emulator tests pass. The test executes a
+native command-line program through adb; it does not validate APK/AAB packaging,
+JNI integration or physical ARM64 device execution in CI.
+
+Install Git, CMake 3.24+, Ninja and the Android NDK. For runtime tests, also install
+Android SDK platform-tools and boot a matching emulator or connect a device.
+Set `ANDROID_NDK_HOME` to the NDK directory, with `cmake`, `ninja` and `adb` on PATH.
+For example, in PowerShell:
+
+```powershell
+git submodule update --init --recursive
+$env:ANDROID_NDK_HOME = "$env:LOCALAPPDATA/Android/Sdk/ndk/30.0.16248370"
+cmake -DTRIPLET=arm64-android-star -P scripts/build-android.cmake
+adb devices
+cmake -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build-android.cmake
+```
+
+The same CMake commands work on Linux and macOS after exporting
+`ANDROID_NDK_HOME`. The x64 build requires an explicit device serial and a passing
+runtime test. The arm64 build optionally accepts `-DANDROID_SERIAL=<serial>` to
+run on a connected ARM64 device. Devices must match the target ABI and run API 28
+or newer. Each execution must exit successfully and print
+`STAR_ANDROID_SMOKE_PASSED` within 120 seconds.
+
+The [build script](scripts/build-android.cmake) produces
+`out/<triplet>/star-binaries-<triplet>-sdk.zip` and its SHA-256 file. Each SDK
+contains headers, Release libraries in `lib/`, Debug libraries in `debug/lib/`,
+CMake exports, licenses and provenance including the NDK version, ABI and API
+level. Consumers compile against a relocated extraction without the vcpkg
+toolchain. Checksums and CI artifacts are produced only after validation passes;
+runtime logs are uploaded even on test failure. There are no separate runtime
+packages, AARs or release assets in this initial Android workflow.
+
+To consume an extracted SDK, configure with the
+[NDK CMake toolchain](https://developer.android.com/ndk/guides/cmake), matching
+`ANDROID_ABI`, `ANDROID_PLATFORM=android-28`, `ANDROID_STL=c++_static`, and
+`CMAKE_BUILD_TYPE=Release` or `Debug`. Set `STAR_SDK_ROOT` to the SDK root:
+
+```cmake
+find_package(ZLIB CONFIG REQUIRED COMPONENTS static
+  PATHS "${STAR_SDK_ROOT}/share/zlib"
+  NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+target_link_libraries(your_target PRIVATE ZLIB::ZLIBSTATIC)
+```
+
+See the [Android consumer](tests/android/CMakeLists.txt) for SDK path validation.
+Android triplets select static libc++; applications adding C++ dependencies must
+keep their STL choice consistent. This pipeline adds no V8 dependency and does
+not modify downstream dependency locks.
+
+## Consume a desktop SDK
 
 Verify the ZIP against its SHA-256 file and extract it. Set `CMAKE_PREFIX_PATH`
 directly to the extracted SDK root (`star-binaries-<triplet>-sdk`), then use:

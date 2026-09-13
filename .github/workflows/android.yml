@@ -1,0 +1,76 @@
+name: Build Android dependencies
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.triplet }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        triplet: [arm64-android-star, x64-android-star]
+    env:
+      BUILD_TRIPLET: ${{ matrix.triplet }}
+      NDK_VERSION: 30.0.16248370
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Set up Java for Android SDK tools
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Install Android toolchain
+        run: |
+          sdkmanager "ndk;$NDK_VERSION" "platform-tools"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          cmake --version
+          ninja --version
+          cat "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
+      - name: Check SDK lookup under cross-compilation root rules
+        run: cmake -DTEST_ROOT="$RUNNER_TEMP/android-lookup" -P tests/android/package_lookup.cmake
+      - name: Build arm64 SDK and validate Release and Debug consumers
+        if: matrix.triplet == 'arm64-android-star'
+        run: cmake -DTRIPLET="$BUILD_TRIPLET" -P scripts/build-android.cmake
+      - name: Enable KVM
+        if: matrix.triplet == 'x64-android-star'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build x64 SDK and run Release and Debug consumers
+        if: matrix.triplet == 'x64-android-star'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: cmake -DTRIPLET="$BUILD_TRIPLET" -DANDROID_SERIAL=emulator-5554 -P scripts/build-android.cmake
+      - uses: actions/upload-artifact@v4
+        with:
+          name: star-binaries-${{ matrix.triplet }}-packages
+          if-no-files-found: error
+          path: |
+            out/${{ matrix.triplet }}/*.zip
+            out/${{ matrix.triplet }}/*.sha256
+      - name: Upload Android logs
+        if: always() && matrix.triplet == 'x64-android-star'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-logs
+          if-no-files-found: warn
+          path: out/${{ matrix.triplet }}/*-android.log
