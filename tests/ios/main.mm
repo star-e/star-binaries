@@ -20,6 +20,20 @@ int star_zlib_roundtrip();
         const int result = star_zlib_roundtrip();
         std::cout << (result == 0 ? "STAR_IOS_SMOKE_PASSED" : "STAR_IOS_SMOKE_FAILED")
                   << std::endl;
+        // Persist the result before exiting: simctl console output is not an acknowledgement.
+        const char* token = std::getenv("STAR_SMOKE_TOKEN");
+        if (token && *token) {
+            NSString* documents = NSSearchPathForDirectoriesInDomains(
+                NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+            NSString* path = [documents stringByAppendingPathComponent:@"star-smoke-result.txt"];
+            NSString* report = [NSString stringWithFormat:@"%s %s\n", token,
+                result == 0 ? "STAR_IOS_SMOKE_PASSED" : "STAR_IOS_SMOKE_FAILED"];
+            NSError* error = nil;
+            if (![report writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+                NSLog(@"Cannot write smoke result: %@", error);
+                std::exit(EXIT_FAILURE);
+            }
+        }
         std::exit(result);
     });
     return YES;
