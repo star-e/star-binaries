@@ -1,0 +1,160 @@
+name: Build V8 13.6
+
+on:
+  push:
+    branches: [main]
+    paths: ['.gitattributes', 'v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/**', 'patches/v8/**', 'tests/v8/**', 'tests/ios/**', 'scripts/ios-simulator-smoke.cmake', '.github/workflows/v8.yml']
+  pull_request:
+    paths: ['.gitattributes', 'v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/**', 'patches/v8/**', 'tests/v8/**', 'tests/ios/**', 'scripts/ios-simulator-smoke.cmake', '.github/workflows/v8.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: V8 ${{ matrix.target.triplet }} ${{ matrix.configuration }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Release, Debug]
+        target:
+          - os: windows-2022
+            triplet: x64-windows-star
+          - os: macos-15
+            triplet: arm64-osx-star
+          - os: ubuntu-24.04
+            triplet: arm64-android-star
+          - os: ubuntu-24.04
+            triplet: x64-android-star
+          - os: macos-15
+            triplet: arm64-ios-star
+          - os: macos-15
+            triplet: arm64-ios-simulator-star
+    runs-on: ${{ matrix.target.os }}
+    env:
+      BUILD_TRIPLET: ${{ matrix.target.triplet }}
+      BUILD_CONFIGURATION: ${{ matrix.configuration }}
+      BUILD_OUTPUT: out/v8/${{ matrix.target.triplet }}/${{ matrix.configuration == 'Debug' && 'debug' || 'release' }}
+      SIMULATOR_UDID: ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja on macOS
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Install Linux host build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++ pkg-config libglib2.0-dev
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        if: runner.os == 'Linux'
+        with:
+          packages: platform-tools
+      - name: Install Android NDK
+        if: runner.os == 'Linux'
+        run: |
+          sdkmanager 'ndk;30.0.16248370'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Boot iPhone simulator
+        if: matrix.target.triplet == 'arm64-ios-simulator-star'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = & xcrun simctl list devices available --json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list simulators' }
+          $device = (($json -join "`n" | ConvertFrom-Json).devices.PSObject.Properties |
+            Where-Object { $_.Name -like 'com.apple.CoreSimulator.SimRuntime.iOS-*' } |
+            ForEach-Object { $_.Value } |
+            Where-Object { $_.isAvailable -and $_.name -like 'iPhone*' } |
+            Select-Object -First 1)
+          if (-not $device) { throw 'No available iPhone simulator' }
+          "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
+          if ($device.state -ne 'Booted') {
+            & xcrun simctl boot $device.udid
+            if ($LASTEXITCODE -ne 0) { throw 'Could not boot simulator' }
+          }
+          & xcrun simctl bootstatus $device.udid -b
+          if ($LASTEXITCODE -ne 0) { throw 'Simulator did not boot' }
+      - name: Build V8 and validate relocated SDK
+        if: matrix.target.triplet != 'x64-android-star'
+        shell: pwsh
+        run: |
+          $arguments = @("-DTRIPLET=$env:BUILD_TRIPLET", "-DCONFIGURATION=$env:BUILD_CONFIGURATION")
+          if ($env:SIMULATOR_UDID) { $arguments += "-DSIMULATOR_UDID=$env:SIMULATOR_UDID" }
+          & cmake @arguments -P scripts/build-v8.cmake
+          if ($LASTEXITCODE -ne 0) { throw 'V8 build or consumer test failed' }
+      - name: Enable KVM
+        if: matrix.target.triplet == 'x64-android-star'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build V8 and execute Android consumer
+        if: matrix.target.triplet == 'x64-android-star'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: cmake -DCONFIGURATION=${{ matrix.configuration }} -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build-v8.cmake
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v8-${{ matrix.target.triplet }}-${{ matrix.configuration }}-sdk
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            ${{ env.BUILD_OUTPUT }}/*.zip
+            ${{ env.BUILD_OUTPUT }}/*.sha256
+      - name: Upload build and runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v8-${{ matrix.target.triplet }}-${{ matrix.configuration }}-logs
+          if-no-files-found: warn
+          path: |
+            out/v8/${{ matrix.target.triplet }}/**/*.log
+            out/v8/source/v8/out/${{ matrix.target.triplet }}-*/args.gn
+            out/v8/source/v8/out/${{ matrix.target.triplet }}-*/.ninja_log
+      - name: Shut down iPhone simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        run: xcrun simctl shutdown "$SIMULATOR_UDID"
+
+  package:
+    name: Package V8 ${{ matrix.triplet }}
+    needs: build
+    # Package successful pairs even when a different platform failed.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        triplet: [x64-windows-star, arm64-osx-star, arm64-android-star, x64-android-star, arm64-ios-star, arm64-ios-simulator-star]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: v8-${{ matrix.triplet }}-Release-sdk
+          path: inputs/Release
+      - uses: actions/download-artifact@v4
+        with:
+          name: v8-${{ matrix.triplet }}-Debug-sdk
+          path: inputs/Debug
+      - name: Merge validated SDK configurations
+        run: cmake -DTRIPLET=${{ matrix.triplet }} -DINPUT_DIR="$GITHUB_WORKSPACE/inputs" -P scripts/v8/merge-sdk.cmake
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v8-${{ matrix.triplet }}-sdk
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            out/v8/${{ matrix.triplet }}/*.zip
+            out/v8/${{ matrix.triplet }}/*.sha256

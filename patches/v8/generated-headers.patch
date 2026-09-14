@@ -1,0 +1,11 @@
+diff --git a/BUILD.gn b/BUILD.gn
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -1089,6 +1089,7 @@ config("v8_header_features") {
+   visibility = [ ":*" ]
+ 
+   if (v8_generate_external_defines_header) {
++    include_dirs = [ "$root_gen_dir/include" ]
+     defines = [ "V8_GN_HEADER" ]
+   } else {
+     defines = enabled_external_v8_defines

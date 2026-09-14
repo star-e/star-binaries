@@ -1,0 +1,41 @@
+diff --git a/BUILD.gn b/BUILD.gn
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -7585,6 +7585,14 @@
+ }
+ 
+ if (is_component_build) {
++  config("star_v8_inline_exports") {
++    if (is_win && is_clang) {
++      # MSVC consumers may reference inline dllimport members out of line.
++      # Emit these public API exports in one dedicated translation unit.
++      cflags_cc = [ "/Zc:dllexportInlines" ]
++    }
++  }
++
+   v8_component("v8") {
+     sources = [ "src/utils/v8dll-main.cc" ]
+ 
+@@ -7594,6 +7602,10 @@
+     ]
+ 
+     configs = [ ":internal_config" ]
++    if (is_win && is_clang) {
++      sources += [ "src/utils/star-v8-inline-exports.cc" ]
++      configs += [ ":star_v8_inline_exports" ]
++    }
+ 
+     public_configs = [ ":external_config" ]
+   }
+diff --git a/src/utils/star-v8-inline-exports.cc b/src/utils/star-v8-inline-exports.cc
+new file mode 100644
+--- /dev/null
++++ b/src/utils/star-v8-inline-exports.cc
+@@ -0,0 +1,7 @@
++// Materialize public inline member exports for native MSVC consumers.
++// The rest of Chromium's component build omits these exports for build speed.
++#undef USING_V8_SHARED
++#undef USING_V8_SHARED_PRIVATE
++#define BUILDING_V8_SHARED
++#include "include/v8.h"
++#include "include/v8-inspector.h"
