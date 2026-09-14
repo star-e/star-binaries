@@ -57,7 +57,7 @@ precomputed libc++ symbol list. This keeps the SDK compatible with MSVC's STL.
 The Windows inline-export patch materializes public inline API members in one
 DLL translation unit so MSVC consumers can link their imported calls.
 
-Run from this repository (each command builds **both** Release and Debug):
+Run from this repository (by default each command builds **both** Release and Debug):
 
 ```sh
 # Windows
@@ -72,13 +72,26 @@ cmake -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build
 ```
 
 Optional `-DJOBS=4` controls compilation parallelism (default 4).
+Pass `-DCONFIGURATION=Release` or `-DCONFIGURATION=Debug` to build and validate
+only that configuration. Single-configuration ZIPs are stored in
+`out/v8/<triplet>/release/` or `debug/`, with `-release` or `-debug` appended
+to the SDK ZIP filename. Each contains only the selected libraries and generated
+headers; use that same configuration when consuming it.
 `-DPRINT_ARGS=ON` prints both GN configurations without downloading or building.
 `-DSKIP_SYNC=ON` reuses an already synchronized checkout on the same host/target;
 do not use it after changing platform dependencies. Build one triplet at a time
 in a checkout; a lock protects the shared gclient tree.
 
 [Build V8 13.6](.github/workflows/v8.yml) builds all six targets on relevant PRs,
-main pushes and manual dispatch. These are separate CI artifacts; the existing
+main pushes and manual dispatch. Release and Debug run as **12 independent build
+jobs**, each validating its own relocated SDK. Six packaging jobs then combine
+the successful pairs, checking checksums, pinned identity and identical shared
+files. The final `v8-<triplet>-sdk` artifacts keep the combined SDK layout;
+`v8-<triplet>-Release-sdk` and `v8-<triplet>-Debug-sdk` contain the individual
+configurations. A failed build can be retried without rebuilding the successful
+configuration. Downloads/toolchain setup still run in each job, and runner
+concurrency limits determine the wall-clock improvement.
+These are separate CI artifacts; the existing
 zlib release workflow does not publish V8 assets. Apple and Android builds need
 their corresponding CI hosts before they can be considered validated.
 
@@ -88,6 +101,16 @@ SHA-256 file. The checksum and successful CI upload are gated on consumer tests
 against a relocated extraction. Device-only targets validate compilation and
 linking; they do not establish physical-device execution or App Store acceptance.
 The smoke test checks the exact V8 version, JavaScript, ArrayBuffer and `Intl`.
+
+To combine separately built SDKs locally, place their ZIPs and SHA-256 files in
+`<inputs>/Release/` and `<inputs>/Debug/`, then run:
+
+```sh
+cmake -DTRIPLET=x64-windows-star -DINPUT_DIR=<inputs> -P scripts/v8/merge-sdk.cmake
+```
+
+Merging preserves the tested library bytes and does not repeat compilation or
+device execution. Per-configuration build metadata is kept in `provenance/`.
 
 Consume the extracted SDK using its matching architecture, deployment target,
 C++ standard library and Windows CRT:
