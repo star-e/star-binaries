@@ -1,0 +1,25 @@
+diff --git a/config/android/BUILD.gn b/config/android/BUILD.gn
+--- a/config/android/BUILD.gn
++++ b/config/android/BUILD.gn
+@@ -113,5 +113,21 @@ config("compiler") {
+ # :runtime_library vs. :compiler.
+ config("runtime_library") {
++  if (!use_custom_libcxx) {
++    # Chromium disables automatic unwind linking with --unwindlib=none.
++    # Its libunwind dependency comes through custom libc++abi, which is absent
++    # when using the NDK STL. Link the matching NDK r30 (Clang 21) archive.
++    if (current_cpu == "x64") {
++      _unwind_arch = "x86_64"
++    } else {
++      assert(current_cpu == "arm64", "Star Android SDKs require x64 or arm64")
++      _unwind_arch = "aarch64"
++    }
++    libs = [
++      "$android_toolchain_root/lib/clang/21/lib/linux/$_unwind_arch/libunwind.a",
++    ]
++    # Keep unwind symbols private to each DSO, as required by the NDK.
++    ldflags = [ "-Wl,--exclude-libs=libunwind.a" ]
++  }
+ }
+ 
+ config("hide_all_but_jni_onload") {

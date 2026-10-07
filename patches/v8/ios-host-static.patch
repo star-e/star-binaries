@@ -1,0 +1,14 @@
+diff --git a/toolchain/mac/BUILD.gn b/toolchain/mac/BUILD.gn
+--- a/toolchain/mac/BUILD.gn
++++ b/toolchain/mac/BUILD.gn
+@@ -29,7 +29,9 @@ template("mac_toolchain") {
+         # Override `is_component_build` for the host toolchain.
+         # See https://crbug.com/gn/286 for details why this is
+         # required.
+-        is_component_build = is_debug
++        # Star's iOS builds inherit v8_monolithic=true in the host toolchain.
++        # Debug host generators must also use static dependencies.
++        is_component_build = false
+ 
+         # Defined in //base, would trigger a warning if the build doesn't depend
+         # on it.
