@@ -14,7 +14,8 @@ permissions:
 jobs:
   build:
     name: V8 ${{ matrix.target.triplet }} ${{ matrix.configuration }}
-    timeout-minutes: 180
+    # Simulator Debug compilation can exceed three hours on hosted macOS.
+    timeout-minutes: ${{ matrix.target.triplet == 'arm64-ios-simulator-star' && matrix.configuration == 'Debug' && 360 || 180 }}
     strategy:
       fail-fast: false
       matrix:
