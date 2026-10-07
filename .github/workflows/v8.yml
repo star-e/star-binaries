@@ -1,11 +1,6 @@
 name: Build V8 13.6
 
 on:
-  push:
-    branches: [main]
-    paths: ['.gitattributes', 'v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/**', 'patches/v8/**', 'tests/v8/**', 'tests/ios/**', 'scripts/ios-simulator-smoke.cmake', '.github/workflows/v8.yml']
-  pull_request:
-    paths: ['.gitattributes', 'v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/**', 'patches/v8/**', 'tests/v8/**', 'tests/ios/**', 'scripts/ios-simulator-smoke.cmake', '.github/workflows/v8.yml']
   workflow_dispatch:
 
 permissions:
@@ -14,8 +9,8 @@ permissions:
 jobs:
   build:
     name: V8 ${{ matrix.target.triplet }} ${{ matrix.configuration }}
-    # Simulator Debug compilation can exceed three hours on hosted macOS.
-    timeout-minutes: ${{ matrix.target.triplet == 'arm64-ios-simulator-star' && matrix.configuration == 'Debug' && 360 || 180 }}
+    # Simulator compilation can exceed three hours on hosted macOS.
+    timeout-minutes: ${{ matrix.target.triplet == 'arm64-ios-simulator-star' && 360 || 180 }}
     strategy:
       fail-fast: false
       matrix:

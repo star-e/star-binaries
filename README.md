@@ -82,8 +82,8 @@ headers; use that same configuration when consuming it.
 do not use it after changing platform dependencies. Build one triplet at a time
 in a checkout; a lock protects the shared gclient tree.
 
-[Build V8 13.6](.github/workflows/v8.yml) builds all six targets on relevant PRs,
-main pushes and manual dispatch. Release and Debug run as **12 independent build
+[Build V8 13.6](.github/workflows/v8.yml) builds all six targets only on manual
+dispatch (Actions → Build V8 13.6 → Run workflow). Release and Debug run as **12 independent build
 jobs**, each validating its own relocated SDK. Six packaging jobs then combine
 the successful pairs, checking checksums, pinned identity and identical shared
 files. The final `v8-<triplet>-sdk` artifacts keep the combined SDK layout;
