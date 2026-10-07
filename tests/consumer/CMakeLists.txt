@@ -28,11 +28,13 @@ endif()
 add_executable(consumer main.cpp)
 target_compile_features(consumer PRIVATE cxx_std_20)
 target_link_libraries(consumer PRIVATE ZLIB::ZLIB)
+include(boost.cmake)
+star_test_boost(consumer "${CMAKE_PREFIX_PATH}")
 if(WIN32)
   add_custom_command(TARGET consumer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:ZLIB::ZLIB> $<TARGET_FILE_DIR:consumer>
-    VERBATIM)
+      $<TARGET_RUNTIME_DLLS:consumer> $<TARGET_FILE_DIR:consumer>
+    COMMAND_EXPAND_LISTS VERBATIM)
 endif()
 
 enable_testing()

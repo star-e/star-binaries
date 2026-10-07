@@ -31,3 +31,5 @@ set_source_files_properties(../consumer/main.cpp PROPERTIES
   COMPILE_DEFINITIONS "main=star_zlib_roundtrip")
 target_compile_features(android_consumer PRIVATE cxx_std_20)
 target_link_libraries(android_consumer PRIVATE ZLIB::ZLIBSTATIC)
+include(../consumer/boost.cmake)
+star_test_boost(android_consumer "${STAR_SDK_ROOT}")

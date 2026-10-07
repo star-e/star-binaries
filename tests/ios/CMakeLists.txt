@@ -29,6 +29,8 @@ set_source_files_properties(../consumer/main.cpp PROPERTIES
 target_compile_features(ios_consumer PRIVATE cxx_std_20)
 target_compile_options(ios_consumer PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
 target_link_libraries(ios_consumer PRIVATE ZLIB::ZLIBSTATIC "-framework UIKit")
+include(../consumer/boost.cmake)
+star_test_boost(ios_consumer "${CMAKE_PREFIX_PATH}")
 set_target_properties(ios_consumer PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.star-engine.binaries.smoke"

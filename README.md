@@ -10,8 +10,9 @@ and star-engine. This repository does not build Node addons or embed Node/V8 yet
 | Windows x64 | DLL, dynamic CRT (/MD in Release, /MDd in Debug) | Release + Debug | Visual Studio C++ tools and Windows SDK |
 | macOS arm64 | dylib | Release + Debug | Xcode command-line tools; deployment target macOS 13.0 |
 
-The initial dependency is zlib. Its version is resolved by the pinned vcpkg
-baseline. Both configurations are built and tested on every desktop workflow
+Dependencies are zlib, Boost.Container, Boost.Unordered and Boost.DynamicBitset.
+Their versions are resolved by the pinned vcpkg baseline (currently Boost 1.92).
+Both configurations are built and tested on every desktop workflow
 run. Experimental iOS and Android validation use separate workflows described below.
 
 ## Build locally
@@ -42,7 +43,10 @@ Each package has a ZIP and SHA-256 file. The script extracts the archives into a
 different directory, checks their contents, and builds/runs the
 [consumer tests](tests/consumer/CMakeLists.txt) without a vcpkg toolchain.
 Tests verify both SDK consumption and deployment into the extracted runtime
-package for each configuration using a zlib compression/decompression round-trip.
+package for each configuration using a zlib compression/decompression round-trip
+and Boost small-vector, PMR, unordered/concurrent-map and dynamic-bitset checks.
+The PMR check exercises compiled Boost.Container symbols. The mobile consumer
+uses the same checks, with runtime execution where the platform workflow supports it.
 The test executable
 is installed after archiving and is not included in the published packages.
 
@@ -75,6 +79,10 @@ development branch does not start a separate build; updating an open PR triggers
 its PR checks. Manual platform runs and reusable release calls remain available.
 
 ## Publish a release
+
+The Boost dependencies require a new release; existing zlib-only v0.1.2 assets
+remain unchanged. Consumers must use the new SDK (or a verified build artifact),
+then lock its release tag and checksum after publication. Do not replace old assets.
 
 Create and publish the release yourself on the GitHub website. The
 [release workflow](.github/workflows/release.yml) checks every pushed tag and

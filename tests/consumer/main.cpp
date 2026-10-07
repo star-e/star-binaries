@@ -5,7 +5,14 @@
 #include <string_view>
 #include <vector>
 
+bool star_boost_smoke();
+
 int main() {
+    if (!star_boost_smoke()) {
+        std::cerr << "Boost container smoke test failed\n";
+        return 1;
+    }
+    std::cout << "Boost container smoke test passed\n";
     constexpr std::string_view message = "star-binaries zlib round-trip";
     auto compressed_size = compressBound(static_cast<uLong>(message.size()));
     std::vector<Bytef> compressed(compressed_size);
