@@ -93,7 +93,7 @@ jobs:
         with:
           name: ios-simulator-logs
           if-no-files-found: warn
-          path: out/${{ matrix.triplet }}/*-simulator.log
+          path: out/${{ matrix.triplet }}/*-simulator*.log*
       - name: Shut down simulator
         if: always() && env.SIMULATOR_UDID != ''
         shell: pwsh

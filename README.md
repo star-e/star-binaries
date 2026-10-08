@@ -76,6 +76,10 @@ For iOS simulator, select an available device UUID. Validation boots it and
 waits for readiness immediately before installing the compiled consumer, rather
 than keeping it running during the V8 build. Startup and installation diagnostics
 are saved in `*-simulator-prepare.log` alongside the runtime test log.
+The shared iOS smoke controller waits up to 120 seconds for a per-launch result
+even if `simctl launch` times out. Only the current token's success receipt passes;
+missing, stale or failed results still fail validation. Explicit launch errors
+fail without this extra wait.
 Pass `-DCONFIGURATION=Release` or `-DCONFIGURATION=Debug` to build and validate
 only that configuration. Single-configuration ZIPs are stored in
 `out/v8/<triplet>/release/` or `debug/`, with `-release` or `-debug` appended
@@ -102,6 +106,11 @@ For transient simulator failures, use **Re-run failed jobs** in the same run to
 reuse successful builds. See [simulator retry details](docs/v8-release.md#retry-simulator-validation-without-rebuilding-v8).
 The release workflow retrieves these SDKs from an explicitly selected successful
 Build V8 run, or reuses an earlier release. It does not rebuild V8.
+It runs [Validate existing V8 SDKs](.github/workflows/validate-v8.yml) against the
+downloaded libraries before publication. For changes to consumer tests or the
+simulator controller, keep the existing `v8-release.json` source and run this
+validation workflow; only the small consumers are compiled. Build inputs must
+still match. The same workflow can be dispatched manually without publishing.
 See [V8 release sources](docs/v8-release.md). Apple and Android builds need
 their corresponding CI hosts before they can be considered validated.
 

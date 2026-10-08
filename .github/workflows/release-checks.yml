@@ -3,9 +3,9 @@ name: Check release scripts
 on:
   push:
     branches: [main]
-    paths: ['scripts/release/**', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', '.github/workflows/release*.yml']
+    paths: ['scripts/release/**', 'scripts/v8/validate*.cmake', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', '.github/workflows/release*.yml', '.github/workflows/validate-v8.yml']
   pull_request:
-    paths: ['scripts/release/**', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', '.github/workflows/release*.yml']
+    paths: ['scripts/release/**', 'scripts/v8/validate*.cmake', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', '.github/workflows/release*.yml', '.github/workflows/validate-v8.yml']
   workflow_dispatch:
 
 permissions:
