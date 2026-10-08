@@ -33,9 +33,8 @@ jobs:
       BUILD_TRIPLET: ${{ matrix.target.triplet }}
       BUILD_CONFIGURATION: ${{ matrix.configuration }}
       BUILD_OUTPUT: out/v8/${{ matrix.target.triplet }}/${{ matrix.configuration == 'Debug' && 'debug' || 'release' }}
-      SIMULATOR_UDID: ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Ninja on macOS
         if: runner.os == 'macOS'
         run: brew install ninja
@@ -44,7 +43,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build g++ pkg-config libglib2.0-dev
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         if: runner.os == 'Linux'
         with:
           distribution: temurin
@@ -58,27 +57,12 @@ jobs:
         run: |
           sdkmanager 'ndk;30.0.16248370'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
-      - name: Select iPhone simulator
-        if: matrix.target.triplet == 'arm64-ios-simulator-star'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $json = & xcrun simctl list devices available --json
-          if ($LASTEXITCODE -ne 0) { throw 'Could not list simulators' }
-          $device = (($json -join "`n" | ConvertFrom-Json).devices.PSObject.Properties |
-            Where-Object { $_.Name -like 'com.apple.CoreSimulator.SimRuntime.iOS-*' } |
-            ForEach-Object { $_.Value } |
-            Where-Object { $_.isAvailable -and $_.name -like 'iPhone*' } |
-            Select-Object -First 1)
-          if (-not $device) { throw 'No available iPhone simulator' }
-          "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
-          # Boot immediately before installing the consumer, after V8 compilation.
       - name: Build V8 and validate relocated SDK
         if: matrix.target.triplet != 'x64-android-star'
         shell: pwsh
         run: |
           $arguments = @("-DTRIPLET=$env:BUILD_TRIPLET", "-DCONFIGURATION=$env:BUILD_CONFIGURATION")
-          if ($env:SIMULATOR_UDID) { $arguments += "-DSIMULATOR_UDID=$env:SIMULATOR_UDID" }
+          if ($env:BUILD_TRIPLET -eq 'arm64-ios-simulator-star') { $arguments += "-DDEFER_SIMULATOR_TEST=ON" }
           & cmake @arguments -P scripts/build-v8.cmake
           if ($LASTEXITCODE -ne 0) { throw 'V8 build or consumer test failed' }
       - name: Enable KVM
@@ -96,9 +80,9 @@ jobs:
           target: default
           disable-animations: true
           script: cmake -DCONFIGURATION=${{ matrix.configuration }} -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build-v8.cmake
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
-          name: v8-${{ matrix.target.triplet }}-${{ matrix.configuration }}-sdk
+          name: v8-${{ matrix.target.triplet }}-${{ matrix.configuration }}-${{ matrix.target.triplet == 'arm64-ios-simulator-star' && 'candidate' || 'sdk' }}
           compression-level: 0
           if-no-files-found: error
           path: |
@@ -106,7 +90,7 @@ jobs:
             ${{ env.BUILD_OUTPUT }}/*.sha256
       - name: Upload build and runtime diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: v8-${{ matrix.target.triplet }}-${{ matrix.configuration }}-logs
           if-no-files-found: warn
@@ -114,6 +98,63 @@ jobs:
             out/v8/${{ matrix.target.triplet }}/**/*.log
             out/v8/source/v8/out/${{ matrix.target.triplet }}-*/args.gn
             out/v8/source/v8/out/${{ matrix.target.triplet }}-*/.ninja_log
+
+  simulator-test:
+    name: Test V8 iOS simulator ${{ matrix.configuration }}
+    needs: build
+    # Other platforms may fail independently; test any available candidates.
+    if: ${{ !cancelled() }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Release, Debug]
+    env:
+      BUILD_CONFIGURATION: ${{ matrix.configuration }}
+      SIMULATOR_UDID: ''
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: v8-arm64-ios-simulator-star-${{ matrix.configuration }}-candidate
+          path: inputs
+      - name: Select iPhone simulator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = & xcrun simctl list devices available --json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list simulators' }
+          $device = (($json -join "`n" | ConvertFrom-Json).devices.PSObject.Properties |
+            Where-Object { $_.Name -like 'com.apple.CoreSimulator.SimRuntime.iOS-*' } |
+            ForEach-Object { $_.Value } |
+            Where-Object { $_.isAvailable -and $_.name -like 'iPhone*' } |
+            Select-Object -First 1)
+          if (-not $device) { throw 'No available iPhone simulator' }
+          "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
+      - name: Validate downloaded SDK on simulator
+        shell: pwsh
+        run: |
+          & cmake "-DCONFIGURATION=$env:BUILD_CONFIGURATION" "-DINPUT_DIR=inputs" "-DSIMULATOR_UDID=$env:SIMULATOR_UDID" -P scripts/v8/validate-ios-simulator.cmake
+          if ($LASTEXITCODE -ne 0) { throw 'V8 simulator validation failed' }
+      - name: Promote validated SDK without changing its bytes
+        uses: actions/upload-artifact@v6
+        with:
+          name: v8-arm64-ios-simulator-star-${{ matrix.configuration }}-sdk
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            inputs/*.zip
+            inputs/*.sha256
+      - name: Upload simulator test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v8-arm64-ios-simulator-star-${{ matrix.configuration }}-test-logs
+          overwrite: true
+          if-no-files-found: warn
+          path: out/v8-simulator/**/*.log*
       - name: Shut down iPhone simulator
         if: always() && env.SIMULATOR_UDID != ''
         shell: pwsh
@@ -121,7 +162,7 @@ jobs:
 
   package:
     name: Package V8 ${{ matrix.triplet }}
-    needs: build
+    needs: [build, simulator-test]
     # Package successful pairs even when a different platform failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -131,20 +172,22 @@ jobs:
       matrix:
         triplet: [x64-windows-star, arm64-osx-star, arm64-android-star, x64-android-star, arm64-ios-star, arm64-ios-simulator-star]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           name: v8-${{ matrix.triplet }}-Release-sdk
           path: inputs/Release
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: v8-${{ matrix.triplet }}-Debug-sdk
           path: inputs/Debug
       - name: Merge validated SDK configurations
         run: cmake -DTRIPLET=${{ matrix.triplet }} -DINPUT_DIR="$GITHUB_WORKSPACE/inputs" -P scripts/v8/merge-sdk.cmake
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: v8-${{ matrix.triplet }}-sdk
+          # Dependent package jobs may run again after a simulator-test retry.
+          overwrite: true
           compression-level: 0
           if-no-files-found: error
           path: |

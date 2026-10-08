@@ -23,13 +23,23 @@ endfunction()
 function(star_run_ios_smoke udid log_path)
   set(bundle org.star-engine.binaries.smoke)
   file(WRITE "${log_path}" "Simulator: ${udid}\n")
-  execute_process(COMMAND xcrun simctl get_app_container "${udid}" "${bundle}" data
-    TIMEOUT 30 RESULT_VARIABLE container_result
-    OUTPUT_VARIABLE container ERROR_VARIABLE container_error
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-  file(APPEND "${log_path}" "Container (${container_result}): ${container}\n${container_error}\n")
+  # CoreSimulator's container service can stall after the first boot/install.
+  # Retry a timeout once; permanent errors must remain visible and fail promptly.
+  foreach(container_attempt RANGE 1 2)
+    execute_process(COMMAND xcrun simctl get_app_container "${udid}" "${bundle}" data
+      TIMEOUT 120 RESULT_VARIABLE container_result
+      OUTPUT_VARIABLE container ERROR_VARIABLE container_error
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(container_diagnostic "Container attempt ${container_attempt}/2 (${container_result}): ${container}\n${container_error}\n")
+    file(APPEND "${log_path}" "${container_diagnostic}")
+    message(STATUS "${container_diagnostic}")
+    if(NOT container_result MATCHES "[Tt]imeout" OR container_attempt EQUAL 2)
+      break()
+    endif()
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 5)
+  endforeach()
   if(NOT container_result STREQUAL "0" OR NOT IS_DIRECTORY "${container}")
-    message(FATAL_ERROR "Cannot locate simulator app data; see ${log_path}")
+    message(FATAL_ERROR "Cannot locate simulator app data: ${container_diagnostic}See ${log_path}")
   endif()
 
   string(RANDOM LENGTH 32 ALPHABET 0123456789abcdef token)

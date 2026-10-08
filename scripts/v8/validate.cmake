@@ -59,7 +59,7 @@ foreach(configuration IN LISTS configurations)
     if(NOT smoke_result STREQUAL "0" OR NOT smoke_output MATCHES "STAR_V8_SMOKE_PASSED")
       message(FATAL_ERROR "V8 execution failed: ${smoke_output}\n${smoke_error}")
     endif()
-  elseif(TRIPLET STREQUAL "arm64-ios-simulator-star")
+  elseif(TRIPLET STREQUAL "arm64-ios-simulator-star" AND NOT DEFER_SIMULATOR_TEST)
     include("${root}/scripts/ios-simulator-smoke.cmake")
     star_install_ios_smoke("${SIMULATOR_UDID}"
       "${consumer}/${configuration}-iphonesimulator/v8_consumer.app"
