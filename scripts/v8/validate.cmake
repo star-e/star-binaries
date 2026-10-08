@@ -61,8 +61,9 @@ foreach(configuration IN LISTS configurations)
     endif()
   elseif(TRIPLET STREQUAL "arm64-ios-simulator-star")
     include("${root}/scripts/ios-simulator-smoke.cmake")
-    run_at("${root}" xcrun simctl install "${SIMULATOR_UDID}"
-      "${consumer}/${configuration}-iphonesimulator/v8_consumer.app")
+    star_install_ios_smoke("${SIMULATOR_UDID}"
+      "${consumer}/${configuration}-iphonesimulator/v8_consumer.app"
+      "${output}/${config}-simulator-prepare.log")
     star_run_ios_smoke("${SIMULATOR_UDID}" "${output}/${config}-simulator.log")
   else()
     message(STATUS "${TRIPLET} ${configuration}: consumer compile/link passed; device execution not performed")

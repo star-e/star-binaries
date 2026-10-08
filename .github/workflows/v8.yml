@@ -58,7 +58,7 @@ jobs:
         run: |
           sdkmanager 'ndk;30.0.16248370'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
-      - name: Boot iPhone simulator
+      - name: Select iPhone simulator
         if: matrix.target.triplet == 'arm64-ios-simulator-star'
         shell: pwsh
         run: |
@@ -72,12 +72,7 @@ jobs:
             Select-Object -First 1)
           if (-not $device) { throw 'No available iPhone simulator' }
           "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
-          if ($device.state -ne 'Booted') {
-            & xcrun simctl boot $device.udid
-            if ($LASTEXITCODE -ne 0) { throw 'Could not boot simulator' }
-          }
-          & xcrun simctl bootstatus $device.udid -b
-          if ($LASTEXITCODE -ne 0) { throw 'Simulator did not boot' }
+          # Boot immediately before installing the consumer, after V8 compilation.
       - name: Build V8 and validate relocated SDK
         if: matrix.target.triplet != 'x64-android-star'
         shell: pwsh
@@ -121,7 +116,8 @@ jobs:
             out/v8/source/v8/out/${{ matrix.target.triplet }}-*/.ninja_log
       - name: Shut down iPhone simulator
         if: always() && env.SIMULATOR_UDID != ''
-        run: xcrun simctl shutdown "$SIMULATOR_UDID"
+        shell: pwsh
+        run: ./scripts/shutdown-ios-simulator.ps1 -Udid $env:SIMULATOR_UDID
 
   package:
     name: Package V8 ${{ matrix.triplet }}

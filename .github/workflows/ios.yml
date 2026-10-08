@@ -96,4 +96,5 @@ jobs:
           path: out/${{ matrix.triplet }}/*-simulator.log
       - name: Shut down simulator
         if: always() && env.SIMULATOR_UDID != ''
-        run: xcrun simctl shutdown "$SIMULATOR_UDID"
+        shell: pwsh
+        run: ./scripts/shutdown-ios-simulator.ps1 -Udid $env:SIMULATOR_UDID

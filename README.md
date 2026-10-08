@@ -65,13 +65,17 @@ cmake -DTRIPLET=x64-windows-star -P scripts/build-v8.cmake
 # Apple Silicon Mac
 cmake -DTRIPLET=arm64-osx-star -P scripts/build-v8.cmake
 cmake -DTRIPLET=arm64-ios-star -P scripts/build-v8.cmake
-cmake -DTRIPLET=arm64-ios-simulator-star -DSIMULATOR_UDID=<booted-uuid> -P scripts/build-v8.cmake
+cmake -DTRIPLET=arm64-ios-simulator-star -DSIMULATOR_UDID=<available-uuid> -P scripts/build-v8.cmake
 # Linux: export ANDROID_NDK_HOME, install adb and boot a matching emulator
 cmake -DTRIPLET=arm64-android-star -P scripts/build-v8.cmake
 cmake -DTRIPLET=x64-android-star -DANDROID_SERIAL=emulator-5554 -P scripts/build-v8.cmake
 ```
 
 Optional `-DJOBS=4` controls compilation parallelism (default 4).
+For iOS simulator, select an available device UUID. Validation boots it and
+waits for readiness immediately before installing the compiled consumer, rather
+than keeping it running during the V8 build. Startup and installation diagnostics
+are saved in `*-simulator-prepare.log` alongside the runtime test log.
 Pass `-DCONFIGURATION=Release` or `-DCONFIGURATION=Debug` to build and validate
 only that configuration. Single-configuration ZIPs are stored in
 `out/v8/<triplet>/release/` or `debug/`, with `-release` or `-debug` appended

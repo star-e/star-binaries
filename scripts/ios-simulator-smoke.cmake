@@ -1,3 +1,23 @@
+# Long builds may outlive the simulator process. Prepare it at installation time.
+function(star_install_ios_smoke udid app_path log_path)
+  file(WRITE "${log_path}" "Simulator: ${udid}\nApp: ${app_path}\n")
+  # -b boots a shutdown device; bootstatus also waits for an existing boot.
+  execute_process(COMMAND xcrun simctl bootstatus "${udid}" -b
+    TIMEOUT 300 RESULT_VARIABLE boot_result
+    OUTPUT_VARIABLE boot_output ERROR_VARIABLE boot_error)
+  file(APPEND "${log_path}" "Boot (${boot_result}):\n${boot_output}\n${boot_error}\n")
+  if(NOT boot_result STREQUAL "0")
+    message(FATAL_ERROR "Simulator did not become ready: ${boot_output}\n${boot_error}\nSee ${log_path}")
+  endif()
+  execute_process(COMMAND xcrun simctl install "${udid}" "${app_path}"
+    TIMEOUT 120 RESULT_VARIABLE install_result
+    OUTPUT_VARIABLE install_output ERROR_VARIABLE install_error)
+  file(APPEND "${log_path}" "Install (${install_result}):\n${install_output}\n${install_error}\n")
+  if(NOT install_result STREQUAL "0")
+    message(FATAL_ERROR "Simulator app installation failed: ${install_output}\n${install_error}\nSee ${log_path}")
+  endif()
+endfunction()
+
 # The app writes an atomic, per-launch acknowledgement in its data container.
 # A successful simctl launch only confirms process creation, not test completion.
 function(star_run_ios_smoke udid log_path)
