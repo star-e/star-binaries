@@ -18,18 +18,46 @@ export function validateRun(runInfo, runId, repository) {
 }
 
 export function validateManifest(manifest, repository, tag, expectedFingerprint, version) {
-  assert.equal(manifest.schemaVersion, 1, 'Unsupported V8 provenance schema');
+  assert.equal(manifest.schemaVersion, 2, 'Unsupported V8 provenance schema');
   assert.equal(manifest.repository, repository);
   assert.equal(manifest.releaseTag, tag, 'V8 provenance belongs to another release');
-  assert.equal(manifest.inputFingerprint, expectedFingerprint, 'V8 inputs changed; select a new Build V8 run');
+  assert.equal(manifest.buildFingerprint, expectedFingerprint, 'V8 build inputs changed; select a new Build V8 run');
   assert.equal(manifest.v8Version, version.version);
   assert(shaPattern.test(manifest.origin?.headSha), 'Invalid V8 origin commit');
   assert(Number.isSafeInteger(manifest.origin?.runId) && manifest.origin.runId > 0, 'Invalid V8 origin run');
   assert.deepEqual(manifest.assets?.map(asset => asset.triplet).sort(), [...triplets].sort(), 'Incomplete V8 platform set');
+  assert(hashPattern.test(manifest.validationFingerprint), 'Invalid validation fingerprint');
   for (const asset of manifest.assets) {
     assert.equal(asset.name, archiveName(version.version, asset.triplet));
     assert(hashPattern.test(asset.sha256), 'Invalid V8 archive checksum');
   }
+}
+
+export const validationMode = triplet => ['arm64-ios-star', 'arm64-android-star'].includes(triplet) ? 'compile-link' : 'runtime';
+
+export function validateReceipts(manifest, receipts) {
+  assert.deepEqual(receipts.map(item => item.triplet).sort(), [...triplets].sort(), 'Incomplete V8 validation set');
+  for (const receipt of receipts) {
+    const asset = manifest.assets.find(item => item.triplet === receipt.triplet);
+    assert.equal(receipt.schemaVersion, 1);
+    assert.equal(receipt.repository, manifest.repository, 'Validation repository mismatch');
+    assert.equal(receipt.validationCommit, manifest.releaseCommit, 'Validation commit mismatch');
+    assert.equal(receipt.validationFingerprint, manifest.validationFingerprint, 'Validation scripts changed');
+    assert.equal(receipt.buildFingerprint, manifest.buildFingerprint, 'Validation build fingerprint mismatch');
+    assert.deepEqual(receipt.origin, manifest.origin, 'Validation origin mismatch');
+    assert.equal(receipt.name, asset.name, 'Validation archive mismatch');
+    assert.equal(receipt.sha256, asset.sha256, 'Validation checksum mismatch');
+    assert.deepEqual(receipt.configurations, ['Release', 'Debug'], 'Both configurations must be validated');
+    assert.equal(receipt.mode, validationMode(receipt.triplet), 'Incorrect validation coverage');
+    assert.equal(receipt.result, 'passed', 'V8 consumer validation failed');
+    assert(Number.isSafeInteger(receipt.runId) && receipt.runId > 0, 'Missing validation run ID');
+  }
+}
+
+async function writeManifest(directory, manifest) {
+  const metadata = path.join(directory, manifestName);
+  writeFileSync(metadata, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(`${metadata}.sha256`, `${await hashFile(metadata)}  ${manifestName}\n`);
 }
 
 function oneAsset(assets, name) {
@@ -43,6 +71,7 @@ export async function prepareV8({ root, output, tag, config, client }) {
   assert(!existsSync(output) || readdirSync(output).length === 0, 'Use an empty V8 output directory');
   const version = v8Version(root);
   const expectedFingerprint = localFingerprint(root);
+  const validationFingerprint = localFingerprint(root, 'validation');
   mkdirSync(output, { recursive: true });
   return withTemp(async work => {
     let origin, previous, sourceAssets;
@@ -68,6 +97,14 @@ export async function prepareV8({ root, output, tag, config, client }) {
       }
       await verifyChecksum(metadata);
       previous = readJson(metadata);
+      if (previous.schemaVersion === 1) {
+        // Migrate legacy provenance only after checking its original combined
+        // fingerprint against the recorded build tree. Never relabel old bytes.
+        const sourceTree = client.tree(previous.origin?.headSha);
+        assert.equal(previous.inputFingerprint, fingerprint(sourceTree, 'legacy'), 'Legacy V8 provenance mismatch');
+        previous = { ...previous, schemaVersion: 2,
+          buildFingerprint: fingerprint(sourceTree), validationFingerprint };
+      }
       validateManifest(previous, client.repository, config.tag, expectedFingerprint, version);
       origin = previous.origin;
     }
@@ -98,18 +135,17 @@ export async function prepareV8({ root, output, tag, config, client }) {
         unlinkSync(path.join(input, assetName));
       }
     }
-    const manifest = { schemaVersion: 1, repository: client.repository, releaseTag: tag,
+    const manifest = { schemaVersion: 2, repository: client.repository, releaseTag: tag,
       releaseCommit: run('git', ['rev-parse', 'HEAD'], root).trim(), source: config,
-      origin, inputFingerprint: expectedFingerprint, v8Version: version.version, assets };
-    const metadata = path.join(output, manifestName);
-    writeFileSync(metadata, `${JSON.stringify(manifest, null, 2)}\n`);
-    writeFileSync(`${metadata}.sha256`, `${await hashFile(metadata)}  ${manifestName}\n`);
+      origin, buildFingerprint: expectedFingerprint, validationFingerprint,
+      v8Version: version.version, assets, validations: [] };
+    await writeManifest(output, manifest);
     return manifest;
   });
 }
 
 // Recheck the exact files passed between jobs; never trust only a job outcome.
-export async function verifyV8Set({ root, directory, tag, repository }) {
+export async function verifyV8Set({ root, directory, tag, repository, pending = false }) {
   assert(stableTag.test(tag), 'Invalid release tag');
   const file = path.join(directory, manifestName);
   await verifyChecksum(file);
@@ -117,6 +153,8 @@ export async function verifyV8Set({ root, directory, tag, repository }) {
   const version = v8Version(root);
   validateManifest(manifest, repository, tag, localFingerprint(root), version);
   assert.equal(manifest.releaseCommit, run('git', ['rev-parse', 'HEAD'], root).trim(), 'Release commit mismatch');
+  assert.equal(manifest.validationFingerprint, localFingerprint(root, 'validation'), 'Validation scripts changed');
+  if (!pending) validateReceipts(manifest, manifest.validations);
   const expected = [manifestName, `${manifestName}.sha256`,
     ...manifest.assets.flatMap(asset => [asset.name, `${asset.name}.sha256`])];
   const actual = readdirSync(directory).filter(name => name.startsWith('star-v8-') || name.startsWith('v8-'));
@@ -128,11 +166,20 @@ export async function verifyV8Set({ root, directory, tag, repository }) {
       assert.equal(sha256, asset.sha256, 'V8 provenance checksum mismatch');
     }
   });
+  return manifest;
+}
+
+export async function finalizeV8({ root, directory, tag, repository, receipts }) {
+  const manifest = await verifyV8Set({ root, directory, tag, repository, pending: true });
+  assertNames(receipts, triplets.map(triplet => `${triplet}.json`));
+  manifest.validations = triplets.map(triplet => readJson(path.join(receipts, `${triplet}.json`)));
+  validateReceipts(manifest, manifest.validations);
+  await writeManifest(directory, manifest);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const [mode, directory] = process.argv.slice(2);
+    const [mode, directory, receipts] = process.argv.slice(2);
     const root = process.cwd();
     const tag = process.env.RELEASE_TAG;
     const repository = process.env.GH_REPO || process.env.GITHUB_REPOSITORY;
@@ -140,6 +187,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (mode === 'prepare' && directory) await prepareV8({ root, output: path.resolve(directory), tag,
       config: readJson(path.join(root, 'v8-release.json')), client: new GitHub(repository) });
     else if (mode === 'verify' && directory) await verifyV8Set({ root, directory: path.resolve(directory), tag, repository });
-    else throw new Error('Usage: node scripts/release/prepare-v8.mjs check-config | prepare <directory> | verify <directory>');
+    else if (mode === 'finalize' && directory && receipts) await finalizeV8({ root,
+      directory: path.resolve(directory), tag, repository, receipts: path.resolve(receipts) });
+    else throw new Error('Usage: node scripts/release/prepare-v8.mjs check-config | prepare <directory> | finalize <directory> <receipts> | verify <directory>');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

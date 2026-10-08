@@ -50,18 +50,30 @@ export function validateSource(config, releaseTag) {
 
 // Git blob identities are independent of CRLF checkout conversion. Exclude the
 // release tooling/config itself so changing a release source does not rebuild V8.
-function isV8Input(name) {
+function isLegacyV8Input(name) {
   return ['.gitattributes', 'v8-version.cmake', 'scripts/build-v8.cmake',
     'scripts/ios-simulator-smoke.cmake', 'scripts/shutdown-ios-simulator.ps1',
     '.github/workflows/v8.yml', 'tests/ios/main.mm', 'tests/ios/Info.plist.in'].includes(name) ||
     ['scripts/v8/', 'patches/v8/', 'tests/v8/'].some(prefix => name.startsWith(prefix));
 }
 
-export function fingerprint(tree) {
-  const files = tree.filter(entry => isV8Input(entry.path) && entry.type !== 'tree')
+function isV8Input(name, kind) {
+  const validation = ['scripts/ios-simulator-smoke.cmake', 'scripts/shutdown-ios-simulator.ps1',
+    '.github/workflows/validate-v8.yml', 'tests/ios/main.mm', 'tests/ios/Info.plist.in'].includes(name) ||
+    name.startsWith('tests/v8/') || name.startsWith('scripts/v8/validate') ||
+    name.startsWith('scripts/release/');
+  if (kind === 'legacy') return isLegacyV8Input(name);
+  if (kind === 'validation') return validation;
+  assert.equal(kind, 'build');
+  return isLegacyV8Input(name) && !validation;
+}
+
+export function fingerprint(tree, kind = 'build') {
+  const files = tree.filter(entry => isV8Input(entry.path, kind) && entry.type !== 'tree')
     .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  for (const required of ['v8-version.cmake', 'scripts/build-v8.cmake',
-    'scripts/v8/args.cmake', '.github/workflows/v8.yml']) {
+  const requiredFiles = kind === 'validation' ? ['scripts/v8/validate.cmake', 'tests/v8/CMakeLists.txt'] :
+    ['v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/args.cmake', '.github/workflows/v8.yml'];
+  for (const required of requiredFiles) {
     assert(files.some(file => file.path === required), `Missing V8 input: ${required}`);
   }
   for (const file of files) {
@@ -72,15 +84,15 @@ export function fingerprint(tree) {
     `${file.mode} ${file.sha} ${file.path}\n`).join('')).digest('hex');
 }
 
-export function localFingerprint(root) {
+export function localFingerprint(root, kind = 'build') {
   const modified = run('git', ['diff', '--name-only', '-z', 'HEAD'], root).split('\0');
   const untracked = run('git', ['ls-files', '--others', '--exclude-standard', '-z'], root).split('\0');
-  assert(![...modified, ...untracked].some(isV8Input), 'Commit V8 input changes before preparing release assets');
+  assert(![...modified, ...untracked].some(name => isV8Input(name, kind)), 'Commit V8 input changes before preparing release assets');
   const entries = run('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], root).split('\0').filter(Boolean);
   return fingerprint(entries.map(entry => {
     const [, mode, type, sha, name] = /^(\d+) (\w+) ([0-9a-f]+)\t([\s\S]+)$/.exec(entry);
     return { mode, type, sha, path: name };
-  }));
+  }), kind);
 }
 
 export function v8Version(root) {

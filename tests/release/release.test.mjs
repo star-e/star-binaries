@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHub, archiveName, extractSelected, fingerprint, hashFile, linkage, localFingerprint,
   manifestName, readJson, run, triplets, v8Version, validateSource, validateV8Archive, verifyChecksum, withTemp } from '../../scripts/release/common.mjs';
-import { prepareV8, validateRun, verifyV8Set } from '../../scripts/release/prepare-v8.mjs';
+import { finalizeV8, prepareV8, validateRun, validateReceipts, validationMode, verifyV8Set } from '../../scripts/release/prepare-v8.mjs';
+import { validateSDK } from '../../scripts/release/validate-v8.mjs';
 import { uploadAssets } from '../../scripts/release/upload-assets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -28,6 +29,20 @@ function write(file, content = 'fixture') {
   writeFileSync(file, content);
 }
 async function sidecar(file) { write(`${file}.sha256`, `${await hashFile(file)}  ${path.basename(file)}\n`); }
+
+function receiptsFor(manifest) {
+  return manifest.assets.map(asset => ({ schemaVersion: 1, repository, runId: 456,
+    validationCommit: manifest.releaseCommit, validationFingerprint: manifest.validationFingerprint,
+    buildFingerprint: manifest.buildFingerprint, origin: manifest.origin, ...asset,
+    configurations: ['Release', 'Debug'], mode: validationMode(asset.triplet), result: 'passed' }));
+}
+
+async function finish(directory, receipts, tag) {
+  for (const receipt of receiptsFor(readJson(path.join(directory, manifestName)))) {
+    write(path.join(receipts, `${receipt.triplet}.json`), JSON.stringify(receipt));
+  }
+  await finalizeV8({ root, directory, tag, repository, receipts });
+}
 
 test('GitHub downloads use endpoint-specific Accept headers and preserve binary bytes', async () => withTemp(async work => {
   const client = new GitHub(repository);
@@ -125,6 +140,25 @@ test('fingerprint ignores ordinary dependency updates but includes V8 inputs', (
   assert.throws(() => fingerprint(tree.filter(entry => entry.path !== 'v8-version.cmake')), /Missing/);
 });
 
+test('validation changes do not rebuild V8; build scripts, packaging and patches still do', () => {
+  for (const name of ['scripts/ios-simulator-smoke.cmake', 'scripts/v8/validate.cmake',
+    'scripts/v8/validate-ios-simulator.cmake', 'scripts/v8/validate-sdk.cmake',
+    'scripts/release/validate-v8.mjs', '.github/workflows/validate-v8.yml', 'tests/ios/main.mm',
+    'tests/v8/CMakeLists.txt']) {
+    const changed = structuredClone(tree);
+    changed.find(entry => entry.path === name).sha = 'a'.repeat(40);
+    assert.equal(fingerprint(changed), fingerprint(tree), name);
+    assert.notEqual(fingerprint(changed, 'validation'), fingerprint(tree, 'validation'), name);
+  }
+  for (const name of ['v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/args.cmake',
+    'scripts/v8/package-libraries.cmake', 'scripts/v8/merge-sdk.cmake', '.github/workflows/v8.yml',
+    tree.find(entry => entry.path.startsWith('patches/v8/') && entry.type === 'blob').path]) {
+    const changed = structuredClone(tree);
+    changed.find(entry => entry.path === name).sha = 'b'.repeat(40);
+    assert.notEqual(fingerprint(changed), fingerprint(tree), name);
+  }
+});
+
 test('reject failed, incomplete, fork, and wrong workflow runs', () => {
   for (const change of [{ conclusion: 'failure' }, { status: 'in_progress' }, { event: 'pull_request' },
     { path: '.github/workflows/build.yml' }, { head_repository: { full_name: 'fork/repo' } }]) {
@@ -138,6 +172,8 @@ test('prepare all six workflow SDKs, verify, then reuse release bytes and origin
   const output = path.join(work, 'first');
   const manifest = await prepareV8({ root, output, tag: 'v0.1.4', config, client });
   assert.equal(readdirSync(output).length, 14);
+  await assert.rejects(verifyV8Set({ root, directory: output, tag: 'v0.1.4', repository }), /Incomplete V8 validation/);
+  await finish(output, path.join(work, 'first-receipts'), 'v0.1.4');
   await verifyV8Set({ root, directory: output, tag: 'v0.1.4', repository });
   const releaseFiles = readdirSync(output).map((name, id) => ({ name, id: id + 1, state: 'uploaded' }));
   const releaseClient = { repository,
@@ -150,13 +186,75 @@ test('prepare all six workflow SDKs, verify, then reuse release bytes and origin
     config: { schemaVersion: 1, source: 'release', tag: 'v0.1.4' }, client: releaseClient });
   assert.deepEqual(reused.assets, manifest.assets);
   assert.deepEqual(reused.origin, manifest.origin);
+  assert.deepEqual(reused.validations, []);
+  await finish(reusedOutput, path.join(work, 'second-receipts'), 'v0.1.5');
   await verifyV8Set({ root, directory: reusedOutput, tag: 'v0.1.5', repository });
   for (const asset of reused.assets) assert.equal(await hashFile(path.join(output, asset.name)), await hashFile(path.join(reusedOutput, asset.name)));
   const metadata = readJson(path.join(reusedOutput, manifestName));
   metadata.assets[0].sha256 = '0'.repeat(64);
   write(path.join(reusedOutput, manifestName), JSON.stringify(metadata));
   await sidecar(path.join(reusedOutput, manifestName));
-  await assert.rejects(verifyV8Set({ root, directory: reusedOutput, tag: 'v0.1.5', repository }), /provenance checksum/);
+  await assert.rejects(verifyV8Set({ root, directory: reusedOutput, tag: 'v0.1.5', repository }), /checksum mismatch/);
+}));
+
+test('existing SDKs accept changed validation inputs but require fresh receipts tied to exact bytes', async () => withTemp(async work => {
+  const client = await fixture(work);
+  client.sourceTree.find(entry => entry.path === 'scripts/ios-simulator-smoke.cmake').sha = 'a'.repeat(40);
+  const output = path.join(work, 'prepared');
+  const manifest = await prepareV8({ root, output, tag: 'v0.1.4', config, client });
+  const receipts = receiptsFor(manifest);
+  validateReceipts(manifest, receipts);
+  for (const change of [{ sha256: 'a'.repeat(64) }, { validationCommit: 'a'.repeat(40) },
+    { validationFingerprint: 'b'.repeat(64) }, { configurations: ['Release'] },
+    { result: 'failed' }, { runId: 0 }, { mode: 'compile-link' },
+    { origin: { ...manifest.origin, headSha: 'b'.repeat(40) } }]) {
+    const bad = structuredClone(receipts);
+    Object.assign(bad[0], change);
+    assert.throws(() => validateReceipts(manifest, bad));
+  }
+  assert.throws(() => validateReceipts(manifest, [...receipts.slice(1), receipts[1]]));
+  const triplet = triplets[0];
+  const options = { root, directory: output, triplet, receipts: path.join(work, 'receipts'), repository, runId: 456 };
+  await assert.rejects(validateSDK({ ...options, execute: () => ({ status: 1 }) }), /consumer validation failed/);
+  const receipt = await validateSDK({ ...options, execute: (command, args) => {
+    assert.equal(command, 'cmake');
+    assert.equal(args.at(-1), 'scripts/v8/validate-sdk.cmake');
+    assert(args.includes(`-DSOURCE_SHA=${sourceSha}`));
+    return { status: 0 };
+  } });
+  assert.deepEqual(receipt, receipts[0]);
+  assert.deepEqual(readJson(path.join(options.receipts, `${triplet}.json`)), receipt);
+  await assert.rejects(validateSDK({ ...options, execute: () => ({ status: 1 }) }), /consumer validation failed/);
+  assert.equal(existsSync(path.join(options.receipts, `${triplet}.json`)), false);
+}));
+
+test('legacy release provenance is checked against its origin tree before migration', async () => withTemp(async work => {
+  const client = await fixture(work);
+  const output = path.join(work, 'legacy');
+  const manifest = await prepareV8({ root, output, tag: 'v0.1.4', config, client });
+  manifest.schemaVersion = 1;
+  manifest.inputFingerprint = fingerprint(tree, 'legacy');
+  delete manifest.buildFingerprint;
+  delete manifest.validationFingerprint;
+  delete manifest.validations;
+  write(path.join(output, manifestName), JSON.stringify(manifest));
+  await sidecar(path.join(output, manifestName));
+  const legacyClient = { repository,
+    api: () => ({ id: 40, tag_name: 'v0.1.4', draft: false, prerelease: false }),
+    pages: () => readdirSync(output).map(name => ({ name })),
+    tree: () => tree,
+    downloadReleaseAsset: (asset, file) => copyFileSync(path.join(output, asset.name), file)
+  };
+  const options = { root, tag: 'v0.1.5', client: legacyClient,
+    config: { schemaVersion: 1, source: 'release', tag: 'v0.1.4' } };
+  const migrated = await prepareV8({ ...options, output: path.join(work, 'migrated') });
+  assert.equal(migrated.schemaVersion, 2);
+  assert.deepEqual(migrated.origin, manifest.origin);
+  assert.deepEqual(migrated.assets, manifest.assets);
+  manifest.inputFingerprint = '0'.repeat(64);
+  write(path.join(output, manifestName), JSON.stringify(manifest));
+  await sidecar(path.join(output, manifestName));
+  await assert.rejects(prepareV8({ ...options, output: path.join(work, 'bad') }), /Legacy V8 provenance mismatch/);
 }));
 
 test('preparation fails before downloads for missing/expired platforms and changed inputs', async () => withTemp(async work => {

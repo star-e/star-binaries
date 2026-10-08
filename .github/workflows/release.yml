@@ -60,27 +60,13 @@ jobs:
 
   prepare-v8:
     needs: validate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.validate.outputs.source_sha }}
-      - name: Fetch and verify previously built V8 SDKs
-        run: node scripts/release/prepare-v8.mjs prepare release-v8
-      - uses: actions/upload-artifact@v6
-        with:
-          name: star-v8-release-packages
-          compression-level: 0
-          if-no-files-found: error
-          path: release-v8/*
+    uses: ./.github/workflows/validate-v8.yml
+    with:
+      source_ref: ${{ needs.validate.outputs.source_sha }}
+      release_tag: ${{ github.event.release.tag_name }}
 
   verify-assets:
     needs: [validate, desktop, android, ios, prepare-v8]

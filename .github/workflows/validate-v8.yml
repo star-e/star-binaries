@@ -1,0 +1,176 @@
+name: Validate existing V8 SDKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Destination version (for provenance only; does not publish)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Fetch SDKs with matching build inputs
+        run: node scripts/release/prepare-v8.mjs prepare inputs
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-v8-validation-inputs
+          compression-level: 0
+          if-no-files-found: error
+          path: inputs/*
+
+  validate:
+    needs: prepare
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - {os: windows-2022, triplet: x64-windows-star}
+          - {os: macos-15, triplet: arm64-osx-star}
+          - {os: ubuntu-24.04, triplet: arm64-android-star}
+          - {os: ubuntu-24.04, triplet: x64-android-star}
+          - {os: macos-15, triplet: arm64-ios-star}
+          - {os: macos-15, triplet: arm64-ios-simulator-star}
+    env:
+      TRIPLET: ${{ matrix.target.triplet }}
+      SIMULATOR_UDID: ''
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: star-v8-validation-inputs
+          path: inputs
+      - name: Install Ninja on macOS
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Install Ninja on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/setup-java@v5
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        if: runner.os == 'Linux'
+        with:
+          packages: platform-tools
+      - name: Install Android NDK
+        if: runner.os == 'Linux'
+        run: |
+          sdkmanager 'ndk;30.0.16248370'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Select iPhone simulator
+        if: matrix.target.triplet == 'arm64-ios-simulator-star'
+        shell: pwsh
+        run: |
+          $json = & xcrun simctl list devices available --json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list simulators' }
+          $device = (($json -join "`n" | ConvertFrom-Json).devices.PSObject.Properties |
+            Where-Object { $_.Name -like 'com.apple.CoreSimulator.SimRuntime.iOS-*' } |
+            ForEach-Object { $_.Value } |
+            Where-Object { $_.isAvailable -and $_.name -like 'iPhone*' } |
+            Select-Object -First 1)
+          if (-not $device) { throw 'No available iPhone simulator' }
+          "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
+      - name: Validate Release and Debug consumers
+        if: matrix.target.triplet != 'x64-android-star'
+        shell: pwsh
+        run: |
+          node scripts/release/validate-v8.mjs inputs $env:TRIPLET receipts
+          if ($LASTEXITCODE -ne 0) { throw 'V8 SDK validation failed' }
+      - name: Enable KVM
+        if: matrix.target.triplet == 'x64-android-star'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute Android consumers
+        if: matrix.target.triplet == 'x64-android-star'
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_SERIAL: emulator-5554
+        with:
+          api-level: 28
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: node scripts/release/validate-v8.mjs inputs x64-android-star receipts
+      - uses: actions/upload-artifact@v6
+        with:
+          name: v8-validation-${{ matrix.target.triplet }}
+          overwrite: true
+          if-no-files-found: error
+          path: receipts/*.json
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v8-validation-${{ matrix.target.triplet }}-logs
+          overwrite: true
+          if-no-files-found: warn
+          path: out/v8-validation/**/*.log*
+      - name: Shut down iPhone simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        shell: pwsh
+        run: ./scripts/shutdown-ios-simulator.ps1 -Udid $env:SIMULATOR_UDID
+
+  finalize:
+    needs: [prepare, validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: star-v8-validation-inputs
+          path: release-v8
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: v8-validation-*-star
+          merge-multiple: true
+          path: receipts
+      - run: node scripts/release/prepare-v8.mjs finalize release-v8 receipts
+      - run: node scripts/release/prepare-v8.mjs verify release-v8
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-v8-release-packages
+          overwrite: true
+          compression-level: 0
+          if-no-files-found: error
+          path: release-v8/*

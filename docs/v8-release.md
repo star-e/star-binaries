@@ -4,17 +4,21 @@ The ordinary SDKs and six V8 SDKs share one `vX.Y.Z` release. Build V8 stays
 manual; publication only downloads, verifies and uploads its outputs. No V8
 compilation, automatic rebuild, or selection of a latest successful run occurs.
 
-## Next build required after the simulator workflow change
+## After changing a test or simulator script
 
-[v8.yml](../.github/workflows/v8.yml) now separates simulator execution from
-compilation and uses Node.js 24 Actions (`checkout@v6`, `upload-artifact@v6`,
-`download-artifact@v7`, `setup-java@v5`). These workflow and validation changes
-alter the V8 input fingerprint. The previously selected run `37718930358` failed
-and cannot serve as the publication source for this revision.
+Keep the successful build source in [v8-release.json](../v8-release.json).
+Commit the change and run **Actions > Validate existing V8 SDKs > Run workflow**,
+selecting the updated branch and supplying the intended destination `release_tag`.
+This workflow downloads the existing six merged SDKs, compiles only the small
+consumers, and validates Release and Debug on their corresponding hosts. It never
+checks out or builds V8 sources and does not publish a release.
 
-- [ ] Commit the changes and manually start a new Build V8 run from that commit.
-- [ ] After the complete run succeeds, update [v8-release.json](../v8-release.json)
-  to its new run ID before publishing. Re-running the old run uses its old source.
+The release workflow calls the same validation workflow automatically. A manual
+run is optional preflight; publication performs its own validation. There is no
+need to change the Build V8 `runId` after a validation-only change. Re-running an
+old workflow run still uses its old source; start a new validation run to pick up
+the fix. Failed/incomplete Build V8 runs and candidate-only SDKs remain unsupported
+as release sources; this path reuses complete SDKs from a successful build/release.
 
 ## Retry simulator validation without rebuilding V8
 
@@ -30,8 +34,9 @@ If simulator execution fails after a successful build, use **Re-run failed jobs*
 in the same Actions run while its candidate artifacts remain available. Successful
 build jobs are retained; simulator tests and failed downstream jobs can retry.
 Do not start a new run or select **Re-run all jobs** merely to retry a transient
-simulator failure. A source fix requires a new run, and expired candidates require
-rebuilding. Publication still requires the entire selected run to succeed.
+simulator failure. Once a full successful SDK set exists, validation-only source
+fixes use the independent workflow above. Expired candidates require rebuilding.
+Publication still requires the selected Build V8 run to have succeeded.
 
 Container lookup has a 120-second timeout and retries a timeout once after five
 seconds. Other errors fail immediately; attempts appear in the console and logs.
@@ -82,36 +87,52 @@ artifacts for long-term reuse.
 
 ## How compatibility is checked
 
-The fingerprint is SHA-256 over sorted Git paths, modes and blob IDs for:
+Schema 2 records separate SHA-256 fingerprints over sorted Git paths, modes and
+blob IDs:
 
-- `v8-version.cmake`, `.gitattributes`, and `.github/workflows/v8.yml`;
-- `scripts/build-v8.cmake`, `scripts/v8/`, and `patches/v8/`;
-- `tests/v8/`, its shared `tests/ios/main.mm` and `Info.plist.in`, and the
-  simulator smoke/cleanup scripts.
+- **Build:** `v8-version.cmake`, `.gitattributes`, `.github/workflows/v8.yml`,
+  `scripts/build-v8.cmake`, `patches/v8/`, and non-validation files in `scripts/v8/`.
+  This includes GN arguments, SDK packaging/configuration and library patches.
+- **Validation:** `scripts/v8/validate*`, `scripts/release/`,
+  `.github/workflows/validate-v8.yml`, `tests/v8/`, shared `tests/ios/main.mm` and
+  `Info.plist.in`, and simulator smoke/cleanup scripts.
 
 The selected run's source tree is read through GitHub's API and compared with
-the release commit. Git identities avoid CRLF checkout differences. Ordinary
-dependency manifests, the distribution version, and release tooling/configuration
-are excluded. Updating Boost or choosing a new V8 release source does not change
-the fingerprint; modifying V8 build/validation inputs requires a matching build.
-This is deliberately conservative, including V8 CI runner/toolchain declarations.
+the release commit's build fingerprint. Git identities avoid CRLF checkout
+differences. Updating Boost or selecting a release source does not require a new
+V8 build. Validation inputs may differ; fresh validation records are required.
+The entire Build V8 workflow remains a conservative build input, including its
+runner/toolchain setup. Changes inside `v8.yml` can still require a matching build;
+the independent validation workflow avoids changing that file for test fixes.
 It compares declared inputs, not the current contents of mutable hosted-runner
 images; reused packages retain their original recorded build environment.
 
 Existing Build V8 SDKs do not need an embedded fingerprint: their `identity.txt`
 source must match the selected run, and the fingerprint comes from that source's
-Git tree. The published `v8-provenance.json` records it for later reuse.
+Git tree. The published `v8-provenance.json` records it for later reuse. Legacy
+schema-1 releases are accepted only after verifying their combined fingerprint
+against the recorded origin Git tree, then checking the new build fingerprint.
+SDK ZIPs and their embedded origin metadata are never rewritten during migration.
+
+Preparation writes a **pending** manifest with no validation receipts. It cannot
+pass release verification or upload. Each successful host job records the exact
+SDK checksum, original build origin, validation commit/fingerprint, Actions run
+ID, both configurations and actual coverage (`runtime` or `compile-link`). Finalization
+requires exactly one valid receipt per triplet and embeds all six in the manifest.
+Every release revalidates its SDKs, including SDKs reused from an earlier release.
 
 Validation also checks SDK SHA-256, upstream V8/depot_tools revisions, platform,
 linkage, feature flags, both configuration headers/metadata and required library
-entries. Archive metadata is extracted without executing any packaged scripts.
-Device-only validation remains compile/link coverage; reuse does not establish
-new physical-device or simulator runtime coverage.
+entries. Metadata inspection does not execute packaged scripts; subsequent consumer
+validation loads the SDK's CMake package and libraries on the designated hosts.
+Android arm64 and iOS device retain compile/link coverage; Windows, macOS,
+Android x64 and iOS simulator execute consumers. This does not establish
+physical-device coverage for the compile/link-only targets.
 
 ## Workflow and local checks
 
-`release.yml` adds a read-only V8 preparation job in parallel with ordinary
-library builds. The final verification job combines all packages into a single
+`release.yml` calls the read-only V8 preparation/validation workflow in parallel
+with ordinary library builds. The final verification job combines all packages into a single
 validated artifact. The workflow runs only on `release: published`; creating or
 pushing a tag alone does not trigger it. Only the upload job can write release
 assets. Upload retries check every
@@ -125,6 +146,9 @@ node --test tests/release/release.test.mjs
 # Set RELEASE_TAG to the destination vX.Y.Z and GH_REPO to star-e/star-binaries.
 node scripts/release/prepare-v8.mjs check-config
 node scripts/release/prepare-v8.mjs prepare release-v8
+# Preparation alone cannot pass verification. The CI validation jobs run
+# validate-v8.mjs on each target host, then collect receipts into one directory.
+node scripts/release/prepare-v8.mjs finalize release-v8 receipts
 node scripts/release/prepare-v8.mjs verify release-v8
 ```
 
