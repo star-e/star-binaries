@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { copyFileSync, mkdirSync, readdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { test, mock } from 'node:test';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { archiveName, extractSelected, fingerprint, hashFile, linkage, localFingerprint,
+import { GitHub, archiveName, extractSelected, fingerprint, hashFile, linkage, localFingerprint,
   manifestName, readJson, run, triplets, v8Version, validateSource, validateV8Archive, verifyChecksum, withTemp } from '../../scripts/release/common.mjs';
 import { prepareV8, validateRun, verifyV8Set } from '../../scripts/release/prepare-v8.mjs';
 import { uploadAssets } from '../../scripts/release/upload-assets.mjs';
@@ -26,6 +28,35 @@ function write(file, content = 'fixture') {
   writeFileSync(file, content);
 }
 async function sidecar(file) { write(`${file}.sha256`, `${await hashFile(file)}  ${path.basename(file)}\n`); }
+
+test('GitHub downloads use endpoint-specific Accept headers and preserve binary bytes', async () => withTemp(async work => {
+  const client = new GitHub(repository);
+  const bytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x80]);
+  const calls = [];
+  const spawn = mock.method(childProcess, 'spawnSync', (command, args, options) => {
+    assert.equal(command, 'gh');
+    calls.push(args);
+    // Model the bytes received after gh follows the download redirect.
+    writeFileSync(options.stdio[1], bytes);
+    return { status: 0 };
+  });
+  syncBuiltinESMExports();
+  try {
+    const artifact = path.join(work, 'artifact.zip');
+    const asset = path.join(work, 'asset.zip');
+    client.download('actions/artifacts/123/zip', artifact);
+    client.downloadReleaseAsset({ id: 456, state: 'uploaded' }, asset);
+    assert.deepEqual(calls, [
+      ['api', '-H', 'Accept: application/vnd.github+json', `repos/${repository}/actions/artifacts/123/zip`],
+      ['api', '-H', 'Accept: application/octet-stream', `repos/${repository}/releases/assets/456`]
+    ]);
+    assert.deepEqual(readFileSync(artifact), bytes);
+    assert.deepEqual(readFileSync(asset), bytes);
+  } finally {
+    spawn.mock.restore();
+    syncBuiltinESMExports();
+  }
+}));
 
 async function fixture(work) {
   const artifacts = [], downloads = new Map();

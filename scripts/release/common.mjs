@@ -180,18 +180,20 @@ export class GitHub {
     assert(!result.truncated, 'Source tree is truncated');
     return result.tree;
   }
-  download(route, file) {
+  download(route, file, accept = 'application/vnd.github+json') {
     mkdirSync(path.dirname(file), { recursive: true });
     const fd = openSync(file, 'wx');
     try {
-      const result = spawnSync('gh', ['api', '-H', 'Accept: application/octet-stream',
+      // Actions artifacts use the JSON API to redirect to a ZIP download.
+      // Only Release assets require octet-stream to select the binary response.
+      const result = spawnSync('gh', ['api', '-H', `Accept: ${accept}`,
         `repos/${this.repository}/${route}`], { stdio: ['ignore', fd, 'inherit'] });
       assert.equal(result.status, 0, `Download failed: ${route}`);
     } finally { closeSync(fd); }
   }
   downloadReleaseAsset(asset, file) {
     assert(Number.isSafeInteger(asset.id) && asset.id > 0 && asset.state === 'uploaded', 'Invalid release asset');
-    this.download(`releases/assets/${asset.id}`, file);
+    this.download(`releases/assets/${asset.id}`, file, 'application/octet-stream');
   }
   upload(tag, file) {
     run('gh', ['release', 'upload', tag, file, '--repo', this.repository]);
