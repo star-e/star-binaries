@@ -88,13 +88,18 @@ in a checkout; a lock protects the shared gclient tree.
 
 [Build V8 13.6](.github/workflows/v8.yml) builds all six targets only on manual
 dispatch (Actions → Build V8 13.6 → Run workflow). Release and Debug run as **12 independent build
-jobs**, each validating its own relocated SDK. Six packaging jobs then combine
+jobs**, each validating its own relocated SDK. Simulator builds upload candidates
+after compile/link checks; two independent simulator test jobs execute the
+downloaded SDKs before promoting the same ZIP bytes to validated artifacts.
+Six packaging jobs then combine
 the successful pairs, checking checksums, pinned identity and identical shared
 files. The final `v8-<triplet>-sdk` artifacts keep the combined SDK layout;
 `v8-<triplet>-Release-sdk` and `v8-<triplet>-Debug-sdk` contain the individual
 configurations. A failed build can be retried without rebuilding the successful
 configuration. Downloads/toolchain setup still run in each job, and runner
 concurrency limits determine the wall-clock improvement.
+For transient simulator failures, use **Re-run failed jobs** in the same run to
+reuse successful builds. See [simulator retry details](docs/v8-release.md#retry-simulator-validation-without-rebuilding-v8).
 The release workflow retrieves these SDKs from an explicitly selected successful
 Build V8 run, or reuses an earlier release. It does not rebuild V8.
 See [V8 release sources](docs/v8-release.md). Apple and Android builds need
@@ -102,8 +107,9 @@ their corresponding CI hosts before they can be considered validated.
 
 Outputs are `out/v8/<triplet>/star-v8-13.6.233.17-<triplet>-<linkage>-sdk.zip`
 (`linkage` is `static` on iOS and `shared` elsewhere) and its
-SHA-256 file. The checksum and successful CI upload are gated on consumer tests
-against a relocated extraction. Device-only targets validate compilation and
+SHA-256 file. Final SDK artifacts are gated on consumer tests against a relocated
+extraction; simulator `-candidate` artifacts still require execution validation.
+Device-only targets validate compilation and
 linking; they do not establish physical-device execution or App Store acceptance.
 The smoke test checks the exact V8 version, JavaScript, ArrayBuffer and `Intl`.
 
