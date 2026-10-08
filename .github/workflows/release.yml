@@ -1,8 +1,6 @@
 name: Release all platforms
 
 on:
-  push:
-    tags: ['**']
   release:
     types: [published]
 
@@ -10,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name }}-${{ github.event.release.tag_name || github.ref_name }}
+  group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
@@ -19,11 +17,11 @@ jobs:
     outputs:
       source_sha: ${{ steps.version.outputs.source_sha }}
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name || github.ref_name) }}
+          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name) }}
       - name: Validate release version
         id: version
         shell: bash
@@ -39,6 +37,8 @@ jobs:
             exit 1
           fi
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Validate V8 release source configuration
+        run: node scripts/release/prepare-v8.mjs check-config
 
   desktop:
     needs: validate
@@ -58,18 +58,51 @@ jobs:
     with:
       source_ref: ${{ needs.validate.outputs.source_sha }}
 
-  verify-assets:
-    needs: [validate, desktop, android, ios]
+  prepare-v8:
+    needs: validate
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate.outputs.source_sha }}
-      - uses: actions/download-artifact@v4
+      - name: Fetch and verify previously built V8 SDKs
+        run: node scripts/release/prepare-v8.mjs prepare release-v8
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-v8-release-packages
+          compression-level: 0
+          if-no-files-found: error
+          path: release-v8/*
+
+  verify-assets:
+    needs: [validate, desktop, android, ios, prepare-v8]
+    runs-on: ubuntu-24.04
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - uses: actions/download-artifact@v7
         with:
           pattern: star-binaries-*-packages
           merge-multiple: true
           path: release-assets
+      - uses: actions/download-artifact@v7
+        with:
+          name: star-v8-release-packages
+          path: release-assets
+      - name: Verify V8 release set
+        run: node scripts/release/prepare-v8.mjs verify release-assets
       - name: Validate release assets
         shell: bash
         working-directory: release-assets
@@ -91,10 +124,16 @@ jobs:
             test -s "$archive.sha256"
           done
           sha256sum --check --strict -- *.sha256
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-validated-assets
+          compression-level: 0
+          if-no-files-found: error
+          path: release-assets/*
 
   upload:
     if: github.event_name == 'release' && github.event.action == 'published'
-    needs: verify-assets
+    needs: [validate, verify-assets]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -103,13 +142,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
         with:
-          pattern: star-binaries-*-packages
-          merge-multiple: true
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-validated-assets
           path: release-assets
       - name: Upload assets to the published release
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" release-assets/*.zip release-assets/*.sha256
+        run: node scripts/release/upload-assets.mjs release-assets

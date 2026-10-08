@@ -29,7 +29,7 @@ jobs:
       BUILD_TRIPLET: ${{ matrix.triplet }}
       SIMULATOR_UDID: ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
           ref: ${{ inputs.source_ref }}
@@ -80,7 +80,7 @@ jobs:
           }
           & cmake @arguments -P scripts/build-ios.cmake
           if ($LASTEXITCODE -ne 0) { throw 'iOS build or consumer validation failed' }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: star-binaries-${{ matrix.triplet }}-packages
           if-no-files-found: error
@@ -89,7 +89,7 @@ jobs:
             out/${{ matrix.triplet }}/*.sha256
       - name: Upload simulator logs
         if: always() && matrix.triplet == 'arm64-ios-simulator-star'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ios-simulator-logs
           if-no-files-found: warn

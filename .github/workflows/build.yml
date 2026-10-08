@@ -28,13 +28,13 @@ jobs:
             triplet: arm64-osx-star
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
           ref: ${{ inputs.source_ref }}
       - name: Build and test Release and Debug packages
         run: cmake -DTRIPLET=${{ matrix.triplet }} -P scripts/build.cmake
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: star-binaries-${{ matrix.triplet }}-packages
           if-no-files-found: error

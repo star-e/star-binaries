@@ -95,8 +95,9 @@ files. The final `v8-<triplet>-sdk` artifacts keep the combined SDK layout;
 configurations. A failed build can be retried without rebuilding the successful
 configuration. Downloads/toolchain setup still run in each job, and runner
 concurrency limits determine the wall-clock improvement.
-These are separate CI artifacts; the existing
-zlib release workflow does not publish V8 assets. Apple and Android builds need
+The release workflow retrieves these SDKs from an explicitly selected successful
+Build V8 run, or reuses an earlier release. It does not rebuild V8.
+See [V8 release sources](docs/v8-release.md). Apple and Android builds need
 their corresponding CI hosts before they can be considered validated.
 
 Outputs are `out/v8/<triplet>/star-v8-13.6.233.17-<triplet>-<linkage>-sdk.zip`
@@ -222,27 +223,30 @@ its PR checks. Manual platform runs and reusable release calls remain available.
 
 ## Publish a release
 
-The Boost dependencies require a new release; existing zlib-only v0.1.2 assets
-remain unchanged. Consumers must use the new SDK (or a verified build artifact),
-then lock its release tag and checksum after publication. Do not replace old assets.
+Ordinary dependencies and V8 SDKs are published together under the same `vX.Y.Z`
+release. V8 is retrieved from existing validated artifacts; ordinary libraries
+are built by the release workflow. Consumers lock the tag and checksums.
 
 Create and publish the release yourself on the GitHub website. The
-[release workflow](.github/workflows/release.yml) checks every pushed tag and
-builds all six targets using the reusable desktop, Android and iOS workflows.
-Only a `release: published` event enables the separate asset upload job.
+[release workflow](.github/workflows/release.yml) runs only on `release: published`.
+It validates the release tag, builds all six targets using the reusable desktop,
+Android and iOS workflows, retrieves V8 SDKs, and uploads the validated assets.
 
 1. Set `version-string` in [vcpkg.json](vcpkg.json) to the intended new version,
-   then commit and push the source and workflow changes.
+   configure [v8-release.json](v8-release.json) with an explicit V8 source,
+   then commit and push. An unset V8 source fails validation before builds start.
 2. Open **Releases > Draft a new release** on GitHub. Select an existing matching
    `vX.Y.Z` tag, or create a new tag on the intended commit using the tag selector.
-   Creating a tag on GitHub or pushing it locally starts validation, never publication.
+   Creating or pushing a tag alone does not trigger the release workflow.
 3. Enter the title and release notes, then click **Publish release**.
    Saving a draft alone does not trigger the workflow.
 4. Check **Release all platforms** in Actions. Windows, macOS, Android and iOS
-   builds must all succeed before packages are uploaded to the release.
+   builds and V8 retrieval/validation must all succeed before uploading packages.
 
 The tag must match the manifest version at that commit; prerelease tags are not
-supported yet. All targets build the same resolved tag commit. Make sure that
+supported yet. Ordinary targets build the same resolved tag commit. Reused V8
+packages retain their original build commit and must match the tag's V8 inputs.
+Make sure that
 commit includes the release workflow and reusable build workflows.
 The asset validation job downloads artifacts from the same workflow run and requires:
 
@@ -250,34 +254,34 @@ The asset validation job downloads artifacts from the same workflow run and requ
 - Android arm64/x64 and iOS device/simulator arm64: static SDK packages containing
   both Release and Debug libraries.
 - SHA-256 files for every package; available desktop symbol packages are included.
+- Six V8 SDKs, each containing Release and Debug, plus `v8-provenance.json` and
+  its checksum. The manifest records the original build and the reuse source.
 
-To check readiness before publishing, create/push the tag first and wait for
-**Release all platforms** to pass: stable tag format, manifest version match,
-all six target builds and consumer tests, package completeness and SHA-256 checks.
-Every tag push is checked; tags outside the supported `vX.Y.Z` format fail the
-version check. These checks run after tag creation and cannot prevent the tag
-from being created or disable GitHub's **Publish release** button. Saving a draft
-alone is not a trigger, although creating its tag can trigger tag validation.
-Publishing later starts a fresh build and validation run before uploading assets.
-Tag validation jobs have read-only repository permissions; only the upload job
-for a published release receives `contents: write`.
+Publishing starts one release run: stable tag format and manifest version checks,
+all six target builds and consumer tests, V8 input matching, package completeness
+and SHA-256 checks. These checks happen after publication and cannot disable
+GitHub's **Publish release** button. Saving a draft or pushing a tag alone does
+not trigger this workflow. V8 is downloaded from the configured source without
+rebuilding. Validation jobs have read-only repository permissions; only the
+upload job receives `contents: write`.
 
 The release becomes visible when you click **Publish release**; binary assets
 arrive only after all builds and checksum checks pass. If a build fails, the
 release remains published without the complete set of binary assets. The
 workflow does not change your release title, notes, or publication state.
-Uploading never overwrites same-name assets. If an upload partially fails,
-inspect existing assets before recovery; rerunning may encounter filename
-conflicts. Never replace already published binaries; publish a new version for
-corrections.
+Uploading never overwrites same-name assets. Retrying the failed upload job skips
+files with identical hashes and uploads missing files. Any different same-name
+file fails the preflight check before new uploads. Rebuilding ordinary packages
+may change ZIP bytes, so retry the upload job using its existing validated
+artifact. Publish a new version for corrections.
 
 This upload-after-publication flow requires releases to allow adding assets
 once published; it cannot attach binaries to an immutable release. Repository
 rules must also allow the upload job's `GITHUB_TOKEN` to write release assets.
 Other jobs retain read-only permissions.
 
-Release URLs supply the version namespace, so asset filenames do not repeat the
-version. Downstream consumers should lock the tag, asset filename and SHA-256,
+Release URLs supply the distribution version namespace; V8 filenames additionally
+include the upstream V8 version. Downstream consumers lock tag, asset and SHA-256,
 not use a `latest` URL. GitHub settings and permissions, rather than this workflow
 alone, determine whether published assets are immutable.
 
