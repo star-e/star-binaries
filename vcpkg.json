@@ -1,6 +1,6 @@
 {
   "name": "star-binaries",
-  "version-string": "0.1.4",
+  "version-string": "0.1.5",
   "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271",
-  "dependencies": ["zlib", "boost-container", "boost-unordered", "boost-dynamic-bitset"]
+  "dependencies": ["zlib", "boost-container", "boost-unordered", "boost-dynamic-bitset", "stdexec"]
 }

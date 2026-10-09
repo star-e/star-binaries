@@ -68,7 +68,7 @@ file(GLOB_RECURSE metadata LIST_DIRECTORIES false RELATIVE "${installed}"
 
 # Include build inputs and revisions for tracing the package's origin.
 file(COPY "${root}/vcpkg.json" "${root}/vcpkg-configuration.json"
-  "${root}/triplets" DESTINATION "${sdk}/provenance")
+  "${root}/triplets" "${root}/ports" DESTINATION "${sdk}/provenance")
 execute_process(COMMAND git -C "${root}" rev-parse HEAD
   OUTPUT_VARIABLE source_revision OUTPUT_STRIP_TRAILING_WHITESPACE
   COMMAND_ERROR_IS_FATAL ANY)

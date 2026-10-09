@@ -1,13 +1,15 @@
 # Dependency SDKs
 
-The [manifest](../vcpkg.json) selects zlib, Boost.Container, Boost.Unordered and
-Boost.DynamicBitset. Versions come from its pinned baseline. V8 is built and
+The [manifest](../vcpkg.json) selects zlib, Boost.Container, Boost.Unordered,
+Boost.DynamicBitset and stdexec. Versions come from its pinned baseline and
+the [stdexec overlay](../ports/stdexec/README.md). V8 is built and
 packaged separately; see [V8 SDKs](v8.md).
 
 ## Targets and validation
 
 All targets build Release and Debug. Tests consume a relocated SDK without a
-vcpkg toolchain and check zlib round-trips, Boost containers and compiled PMR symbols.
+vcpkg toolchain and check zlib round-trips, Boost containers, compiled PMR symbols,
+and stdexec sender composition, coroutine results, errors, stopping and thread scheduling.
 
 | Triplet | Toolchain / target | Linkage | CI validation |
 | --- | --- | --- | --- |
@@ -19,6 +21,7 @@ vcpkg toolchain and check zlib round-trips, Boost containers and compiled PMR sy
 | arm64-ios-simulator-star | Same Xcode/target; iphonesimulator | Static | Execute App in available simulator |
 
 Deployment targets are build settings, not proof of execution on the oldest OS.
+stdexec is header-only on all targets; the linkage column applies to compiled libraries.
 CI does not cover physical ARM64 mobile devices, signing, App Store submission,
 APK/AAB packaging or JNI integration. Device and simulator libraries are distinct.
 
@@ -130,7 +133,31 @@ the separate Android V8 SDK uses `c++_shared`.
 For complete relocated lookup and deployment checks, see the
 [desktop](../tests/consumer/CMakeLists.txt),
 [Android](../tests/android/CMakeLists.txt) and [iOS](../tests/ios/CMakeLists.txt)
-consumers, including [Boost lookup](../tests/consumer/boost.cmake).
+consumers, including [Boost lookup](../tests/consumer/boost.cmake) and
+[stdexec lookup](../tests/consumer/stdexec.cmake).
+
+### stdexec
+
+The SDK includes `<stdexec/execution.hpp>`, `<exec/task.hpp>` and the upstream
+`STDEXEC::stdexec` CMake target. It requires C++20 and a compatible compiler:
+
+```cmake
+find_package(stdexec CONFIG REQUIRED)
+target_link_libraries(your_target PRIVATE STDEXEC::stdexec)
+```
+
+Use `PUBLIC` when your public headers expose stdexec types. This interface target
+propagates headers, compile options and upstream system dependencies such as
+`Threads::Threads`; it does not link a stdexec static or dynamic library.
+Keep the SDK version, compile definitions and C++ ABI consistent across modules.
+Coroutine use across DLLs still requires an explicit lifetime/unload contract;
+the SDK smoke test does not validate that contract.
+
+The overlay disables the compiled `parallel_scheduler` backend. Applications
+own their schedulers and execution resources; `exec::system_context` requiring
+that backend is not part of the supported package. Optional Asio, TBB, Taskflow
+and GPU integrations are not enabled or tested. Consumers do not build stdexec
+or fetch its build tools. Overlay sources and patches are included in SDK provenance.
 
 ## Dependency maintenance
 
