@@ -53,7 +53,7 @@ if(dynamic_libraries)
   message(FATAL_ERROR "Unexpected dynamic libraries in static iOS SDK")
 endif()
 file(COPY "${root}/vcpkg.json" "${root}/vcpkg-configuration.json"
-  "${root}/triplets" DESTINATION "${sdk}/provenance")
+  "${root}/triplets" "${root}/ports" DESTINATION "${sdk}/provenance")
 file(WRITE "${sdk}/provenance/build.txt"
   "source=${source_revision}\nvcpkg=${revision}\ntriplet=${TRIPLET}\nconfigurations=Release,Debug\nlinkage=static\nsysroot=${VCPKG_OSX_SYSROOT}\ndeployment_target=${VCPKG_OSX_DEPLOYMENT_TARGET}\ncmake=${CMAKE_VERSION}\n${xcode_version}")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E tar cf "${archive}"

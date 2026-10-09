@@ -155,6 +155,7 @@ The maintainer confirmed independent validation and subsequent publication succe
 Build source configured at that time: `37745543587`.
 Validation run discussed: [37803782660](https://github.com/star-e/star-binaries/actions/runs/37803782660).
 
-Before the next release, switch to the successful Release tag as the V8 source.
-The exact published tag was not recorded in this confirmation; do not infer it
-from the examples above. Physical-device runtime coverage remains unchanged.
+The maintainer subsequently selected `v0.1.4` as the published V8 source.
+`v8-release.json` now reuses that release for the next `v0.1.5` publication,
+avoiding dependence on expiring workflow artifacts. Publication still validates
+all six SDKs without rebuilding V8. Physical-device runtime coverage remains unchanged.

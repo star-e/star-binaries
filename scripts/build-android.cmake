@@ -78,7 +78,7 @@ if(dynamic_libraries)
   message(FATAL_ERROR "Unexpected dynamic libraries in static Android SDK")
 endif()
 file(COPY "${root}/vcpkg.json" "${root}/vcpkg-configuration.json"
-  "${root}/triplets" DESTINATION "${sdk}/provenance")
+  "${root}/triplets" "${root}/ports" DESTINATION "${sdk}/provenance")
 file(WRITE "${sdk}/provenance/build.txt"
   "source=${source_revision}\nvcpkg=${revision}\ntriplet=${TRIPLET}\nconfigurations=Release,Debug\nlinkage=static\nstl=c++_static\nabi=${abi}\napi=${VCPKG_CMAKE_SYSTEM_VERSION}\ncmake=${CMAKE_VERSION}\nhost=${CMAKE_HOST_SYSTEM}\n${ndk_version}")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E tar cf "${archive}"

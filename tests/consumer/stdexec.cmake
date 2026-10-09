@@ -1,0 +1,20 @@
+# The exported interface must work without a vcpkg toolchain or source checkout.
+function(star_test_stdexec target sdk)
+  find_package(stdexec CONFIG REQUIRED
+    PATHS "${sdk}/share/stdexec" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+  get_target_property(kind STDEXEC::stdexec TYPE)
+  if(NOT kind STREQUAL "INTERFACE_LIBRARY" OR TARGET STDEXEC::parallel_scheduler)
+    message(FATAL_ERROR "Expected header-only stdexec without parallel_scheduler")
+  endif()
+  get_target_property(includes STDEXEC::stdexec INTERFACE_INCLUDE_DIRECTORIES)
+  foreach(path IN LISTS includes)
+    # CMake file sets add BUILD_INTERFACE wrappers even to imported targets.
+    string(REGEX REPLACE "^\\$<BUILD_INTERFACE:(.*)>$" "\\1" path "${path}")
+    cmake_path(IS_PREFIX sdk "${path}" NORMALIZE from_sdk)
+    if(NOT from_sdk OR NOT EXISTS "${path}")
+      message(FATAL_ERROR "stdexec resolved outside the SDK or is missing: ${path}")
+    endif()
+  endforeach()
+  target_sources(${target} PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/stdexec.cpp")
+  target_link_libraries(${target} PRIVATE STDEXEC::stdexec)
+endfunction()
