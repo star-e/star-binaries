@@ -1,6 +1,6 @@
 {
   "name": "star-binaries",
-  "version-string": "0.1.5",
+  "version-string": "0.1.6",
   "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271",
   "dependencies": ["boost-container", "boost-unordered", "boost-dynamic-bitset", "stdexec", "ms-gsl"]
 }
