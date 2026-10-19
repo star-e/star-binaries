@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 
-int star_zlib_roundtrip();
+int star_smoke_main();
 
 @interface StarSmokeDelegate : UIResponder <UIApplicationDelegate>
 @property(nonatomic, strong) UIWindow* window;
@@ -17,7 +17,7 @@ int star_zlib_roundtrip();
     self.window.rootViewController = [[UIViewController alloc] init];
     [self.window makeKeyAndVisible];
     dispatch_async(dispatch_get_main_queue(), ^{
-        const int result = star_zlib_roundtrip();
+        const int result = star_smoke_main();
         std::cout << (result == 0 ? "STAR_IOS_SMOKE_PASSED" : "STAR_IOS_SMOKE_FAILED")
                   << std::endl;
         // Persist the result before exiting: simctl console output is not an acknowledgement.

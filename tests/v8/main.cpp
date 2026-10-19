@@ -51,6 +51,8 @@ int star_v8_smoke() {
   return status;
 }
 
-#ifndef STAR_V8_IOS
+#ifdef STAR_V8_IOS
+int star_smoke_main() { return star_v8_smoke(); }
+#else
 int main() { return star_v8_smoke(); }
 #endif

@@ -2,7 +2,7 @@
 
 Build and distribute third-party C++ SDKs for star-platforms and star-engine.
 
-- **Ordinary dependencies:** zlib, Boost.Container, Boost.Unordered,
+- **Ordinary dependencies:** Boost.Container, Boost.Unordered,
   Boost.DynamicBitset, stdexec and Microsoft GSL (`ms-gsl`), resolved by the pinned
   [vcpkg manifest](vcpkg.json).
 - **V8:** a separate GN build pinned by [v8-version.cmake](v8-version.cmake).

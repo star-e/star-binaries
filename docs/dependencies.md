@@ -1,6 +1,6 @@
 # Dependency SDKs
 
-The [manifest](../vcpkg.json) selects zlib, Boost.Container, Boost.Unordered,
+The [manifest](../vcpkg.json) selects Boost.Container, Boost.Unordered,
 Boost.DynamicBitset, stdexec and Microsoft GSL (`ms-gsl`). Versions come from its pinned baseline and
 the [stdexec overlay](../ports/stdexec/README.md). V8 is built and
 packaged separately; see [V8 SDKs](v8.md).
@@ -8,9 +8,14 @@ packaged separately; see [V8 SDKs](v8.md).
 ## Targets and validation
 
 All targets build Release and Debug. Tests consume a relocated SDK without a
-vcpkg toolchain and check zlib round-trips, Boost containers, compiled PMR symbols,
+vcpkg toolchain and check Boost containers, compiled PMR symbols,
 stdexec sender composition, coroutine results, errors, stopping and thread scheduling,
 and Microsoft GSL contracts, `span` and `not_null`.
+
+The ordinary dependency consumer does not link V8. On mobile, `star_smoke_main`
+is the entry called by the Android/iOS launcher; its body comes from
+`tests/consumer/main.cpp`. The separate V8 consumer supplies its own entry and
+only reuses the iOS launcher.
 
 | Triplet | Toolchain / target | Linkage | CI validation |
 | --- | --- | --- | --- |
@@ -106,10 +111,9 @@ Verify the checksum, extract the SDK, and select the matching architecture and
 configuration. Set `CMAKE_PREFIX_PATH` to its root. Desktop example:
 
 ```cmake
-find_package(ZLIB CONFIG REQUIRED)
 find_package(Boost 1.90 CONFIG REQUIRED COMPONENTS container unordered dynamic_bitset)
 target_link_libraries(your_target PRIVATE
-    ZLIB::ZLIB Boost::container Boost::unordered Boost::dynamic_bitset)
+    Boost::container Boost::unordered Boost::dynamic_bitset)
 ```
 
 Use `--config Release|Debug` or `CMAKE_BUILD_TYPE` as appropriate. Match the
@@ -117,13 +121,17 @@ Windows CRT to the selected configuration. Deploy dynamic dependencies with the
 application; Microsoft's CRT is not bundled. Windows Debug libraries require
 the developer debug CRT.
 
-Mobile consumers use the platform toolchain and static zlib target:
+Mobile consumers use the platform toolchain and the SDK's static Boost.Container.
+The SDK prefix must also be available when resolving Boost's transitive packages:
 
 ```cmake
-find_package(ZLIB CONFIG REQUIRED COMPONENTS static
-    PATHS "${STAR_SDK_ROOT}/share/zlib"
+list(PREPEND CMAKE_PREFIX_PATH "${STAR_SDK_ROOT}")
+list(PREPEND CMAKE_FIND_ROOT_PATH "${STAR_SDK_ROOT}")
+find_package(Boost 1.90 CONFIG REQUIRED COMPONENTS container unordered dynamic_bitset
+    PATHS "${STAR_SDK_ROOT}/share/boost"
     NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
-target_link_libraries(your_target PRIVATE ZLIB::ZLIBSTATIC)
+target_link_libraries(your_target PRIVATE
+    Boost::container Boost::unordered Boost::dynamic_bitset)
 ```
 
 Android uses `ANDROID_PLATFORM=android-28`, the matching `ANDROID_ABI`, and
