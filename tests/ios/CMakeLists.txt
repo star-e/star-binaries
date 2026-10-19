@@ -33,6 +33,8 @@ include(../consumer/boost.cmake)
 star_test_boost(ios_consumer "${CMAKE_PREFIX_PATH}")
 include(../consumer/stdexec.cmake)
 star_test_stdexec(ios_consumer "${CMAKE_PREFIX_PATH}")
+include(../consumer/gsl.cmake)
+star_test_gsl(ios_consumer "${CMAKE_PREFIX_PATH}")
 set_target_properties(ios_consumer PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.star-engine.binaries.smoke"

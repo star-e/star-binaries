@@ -7,8 +7,14 @@
 
 bool star_boost_smoke();
 bool star_stdexec_smoke();
+bool star_gsl_smoke();
 
 int main() {
+    if (!star_gsl_smoke()) {
+        std::cerr << "Microsoft GSL smoke test failed\n";
+        return 1;
+    }
+    std::cout << "Microsoft GSL contracts/span/not_null smoke test passed\n";
     if (!star_stdexec_smoke()) {
         std::cerr << "stdexec smoke test failed\n";
         return 1;

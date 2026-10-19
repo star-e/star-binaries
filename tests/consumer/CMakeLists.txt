@@ -32,6 +32,8 @@ include(boost.cmake)
 star_test_boost(consumer "${CMAKE_PREFIX_PATH}")
 include(stdexec.cmake)
 star_test_stdexec(consumer "${CMAKE_PREFIX_PATH}")
+include(gsl.cmake)
+star_test_gsl(consumer "${CMAKE_PREFIX_PATH}")
 if(WIN32)
   add_custom_command(TARGET consumer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
