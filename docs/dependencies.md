@@ -1,15 +1,21 @@
 # Dependency SDKs
 
-The [manifest](../vcpkg.json) selects zlib, Boost.Container, Boost.Unordered,
-Boost.DynamicBitset and stdexec. Versions come from its pinned baseline and
+The [manifest](../vcpkg.json) selects Boost.Container, Boost.Unordered,
+Boost.DynamicBitset, stdexec and Microsoft GSL (`ms-gsl`). Versions come from its pinned baseline and
 the [stdexec overlay](../ports/stdexec/README.md). V8 is built and
 packaged separately; see [V8 SDKs](v8.md).
 
 ## Targets and validation
 
 All targets build Release and Debug. Tests consume a relocated SDK without a
-vcpkg toolchain and check zlib round-trips, Boost containers, compiled PMR symbols,
-and stdexec sender composition, coroutine results, errors, stopping and thread scheduling.
+vcpkg toolchain and check Boost containers, compiled PMR symbols,
+stdexec sender composition, coroutine results, errors, stopping and thread scheduling,
+and Microsoft GSL contracts, `span` and `not_null`.
+
+The ordinary dependency consumer does not link V8. On mobile, `star_smoke_main`
+is the entry called by the Android/iOS launcher; its body comes from
+`tests/consumer/main.cpp`. The separate V8 consumer supplies its own entry and
+only reuses the iOS launcher.
 
 | Triplet | Toolchain / target | Linkage | CI validation |
 | --- | --- | --- | --- |
@@ -21,7 +27,7 @@ and stdexec sender composition, coroutine results, errors, stopping and thread s
 | arm64-ios-simulator-star | Same Xcode/target; iphonesimulator | Static | Execute App in available simulator |
 
 Deployment targets are build settings, not proof of execution on the oldest OS.
-stdexec is header-only on all targets; the linkage column applies to compiled libraries.
+stdexec and Microsoft GSL are header-only on all targets; the linkage column applies to compiled libraries.
 CI does not cover physical ARM64 mobile devices, signing, App Store submission,
 APK/AAB packaging or JNI integration. Device and simulator libraries are distinct.
 
@@ -105,10 +111,9 @@ Verify the checksum, extract the SDK, and select the matching architecture and
 configuration. Set `CMAKE_PREFIX_PATH` to its root. Desktop example:
 
 ```cmake
-find_package(ZLIB CONFIG REQUIRED)
 find_package(Boost 1.90 CONFIG REQUIRED COMPONENTS container unordered dynamic_bitset)
 target_link_libraries(your_target PRIVATE
-    ZLIB::ZLIB Boost::container Boost::unordered Boost::dynamic_bitset)
+    Boost::container Boost::unordered Boost::dynamic_bitset)
 ```
 
 Use `--config Release|Debug` or `CMAKE_BUILD_TYPE` as appropriate. Match the
@@ -116,13 +121,17 @@ Windows CRT to the selected configuration. Deploy dynamic dependencies with the
 application; Microsoft's CRT is not bundled. Windows Debug libraries require
 the developer debug CRT.
 
-Mobile consumers use the platform toolchain and static zlib target:
+Mobile consumers use the platform toolchain and the SDK's static Boost.Container.
+The SDK prefix must also be available when resolving Boost's transitive packages:
 
 ```cmake
-find_package(ZLIB CONFIG REQUIRED COMPONENTS static
-    PATHS "${STAR_SDK_ROOT}/share/zlib"
+list(PREPEND CMAKE_PREFIX_PATH "${STAR_SDK_ROOT}")
+list(PREPEND CMAKE_FIND_ROOT_PATH "${STAR_SDK_ROOT}")
+find_package(Boost 1.90 CONFIG REQUIRED COMPONENTS container unordered dynamic_bitset
+    PATHS "${STAR_SDK_ROOT}/share/boost"
     NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
-target_link_libraries(your_target PRIVATE ZLIB::ZLIBSTATIC)
+target_link_libraries(your_target PRIVATE
+    Boost::container Boost::unordered Boost::dynamic_bitset)
 ```
 
 Android uses `ANDROID_PLATFORM=android-28`, the matching `ANDROID_ABI`, and
@@ -134,7 +143,27 @@ For complete relocated lookup and deployment checks, see the
 [desktop](../tests/consumer/CMakeLists.txt),
 [Android](../tests/android/CMakeLists.txt) and [iOS](../tests/ios/CMakeLists.txt)
 consumers, including [Boost lookup](../tests/consumer/boost.cmake) and
-[stdexec lookup](../tests/consumer/stdexec.cmake).
+[stdexec lookup](../tests/consumer/stdexec.cmake) and
+[GSL lookup](../tests/consumer/gsl.cmake).
+
+### Microsoft GSL
+
+The pinned vcpkg baseline selects Microsoft GSL 4.2.2. SDKs include `include/gsl`,
+the CMake package under `share/Microsoft.GSL`, and its license under
+`share/ms-gsl`. No GSL DLL or separate
+Debug binary is needed. Consumers use the packaged target:
+
+```cmake
+find_package(Microsoft.GSL CONFIG REQUIRED)
+target_link_libraries(your_target PRIVATE Microsoft.GSL::GSL)
+```
+
+For cross builds with root-only package lookup, add
+`PATHS "${STAR_SDK_ROOT}/share/Microsoft.GSL" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH`
+to `find_package`, as in the consumer check. `<gsl/assert>` provides `Expects`
+and `Ensures`; both remain active in Release and terminate on contract failure.
+Consumers must update their SDK release/checksum lock after a new SDK is
+published; existing released packages do not acquire this dependency retroactively.
 
 ### stdexec
 

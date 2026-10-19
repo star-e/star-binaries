@@ -38,7 +38,7 @@ endforeach()
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   enable_language(OBJCXX)
   add_executable(v8_consumer MACOSX_BUNDLE main.cpp ../ios/main.mm)
-  target_compile_definitions(v8_consumer PRIVATE STAR_V8_IOS star_zlib_roundtrip=star_v8_smoke)
+  target_compile_definitions(v8_consumer PRIVATE STAR_V8_IOS)
   target_compile_options(v8_consumer PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
   target_link_libraries(v8_consumer PRIVATE "-framework UIKit")
   set_target_properties(v8_consumer PROPERTIES
