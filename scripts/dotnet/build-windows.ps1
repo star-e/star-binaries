@@ -11,6 +11,13 @@ $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.e
 $vsPath = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if ($LASTEXITCODE -ne 0 -or !$vsPath) { throw 'Visual Studio C++ x64 build tools are required.' }
 & "$vsPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+if ($env:VSCMD_ARG_HOST_ARCH -ne 'x64' -or $env:VSCMD_ARG_TGT_ARCH -ne 'x64') {
+    throw 'CoreCLR requires an initialized x64 host and target MSVC environment.'
+}
+# CoreCLR, native libraries and corehost honor this upstream switch. Reuse the
+# x64 environment instead of expanding PATH again through nested vcvarsall calls.
+$env:SkipVCEnvInit = '1'
+Write-Host "Using initialized VS x64 environment (PATH length: $($env:PATH.Length)); SkipVCEnvInit=1."
 foreach ($tool in @('cmake', 'ninja', 'python', 'git')) {
     Get-Command $tool -ErrorAction Stop | Out-Null
 }

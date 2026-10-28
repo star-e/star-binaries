@@ -23,13 +23,8 @@ function Invoke-CMake([string]$FailureMessage, [string[]]$Arguments) {
     if ($status -ne 0) { throw $FailureMessage }
 }
 
-if ($env:OS -eq 'Windows_NT') {
-    $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
-    $vsPath = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if ($LASTEXITCODE -ne 0 -or !$vsPath) { throw 'Visual Studio C++ x64 build tools are required.' }
-    & "$vsPath/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-}
-
+# The source-build child initializes its own VS environment. Consumer validation
+# uses CMake's Visual Studio generator, which locates MSVC without a developer shell.
 New-Item -ItemType Directory -Force $cache, $validation | Out-Null
 $cachedFiles = @(Get-ChildItem -LiteralPath $cache -File)
 $built = $cachedFiles.Count -eq 0

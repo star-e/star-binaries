@@ -1,7 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath "$PSScriptRoot/../..").Path
 $testRoot = Join-Path $root ("out/dotnet/ci-script-tests/" + [guid]::NewGuid().ToString('N'))
-$savedOS = $env:OS
 $savedOutput = $env:GITHUB_OUTPUT
 $savedSummary = $env:GITHUB_STEP_SUMMARY
 $script:cases = 0
@@ -54,7 +53,9 @@ function Run-Case([string]$Name, [bool]$Cached, [bool]$FailBuild, [bool]$FailVal
     if ($ExtraFile) { Set-Content -LiteralPath (Join-Path $cache 'unexpected.txt') 'unexpected' }
     $env:GITHUB_OUTPUT = Join-Path $caseRoot 'outputs.txt'
     $failure = $null
+    $pathBefore = $env:PATH
     try { & "$scriptDir/prepare-ci-sdk.ps1" -Triplet x64-windows-star } catch { $failure = $_ }
+    Assert-True ($env:PATH -ceq $pathBefore) "$Name changed the caller's PATH"
     $shouldFail = $FailBuild -or $FailValidation -or $ExtraFile
     Assert-True (($null -ne $failure) -eq $shouldFail) "$Name returned an unexpected result: $failure"
     Assert-True ($state.Builds -eq $(if ($Cached) { 0 } else { 1 })) "$Name rebuilt unexpectedly"
@@ -75,8 +76,8 @@ function Run-Case([string]$Name, [bool]$Cached, [bool]$FailBuild, [bool]$FailVal
 }
 
 try {
-    # Avoid invoking a real VS shell or writing to the enclosing GitHub step.
-    $env:OS = ''
+    # Keep the real OS so Windows also verifies orchestration needs no VS shell.
+    # Do not write to the enclosing GitHub step.
     $env:GITHUB_STEP_SUMMARY = ''
     Run-Case 'cache-miss' $false $false $false $false
     Run-Case 'cache-hit' $true $false $false $false
@@ -87,7 +88,6 @@ try {
     Write-Host "CI SDK orchestration checks passed ($script:cases)."
     $global:LASTEXITCODE = 0
 } finally {
-    $env:OS = $savedOS
     $env:GITHUB_OUTPUT = $savedOutput
     $env:GITHUB_STEP_SUMMARY = $savedSummary
     Remove-Item -LiteralPath Function:\cmake

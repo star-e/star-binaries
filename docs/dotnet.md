@@ -45,6 +45,9 @@ repository directory with `dotnet --version`.
 Windows needs Visual Studio C++ x64 tools, a Windows SDK, CMake 3.26+, Ninja and
 Python 3.7.4+. Enable Windows long paths; the script initializes the VS developer
 environment and configures long-path support in its own Git checkout.
+The source-build child initializes x64 MSVC once and sets upstream
+`SkipVCEnvInit=1`, avoiding repeated `vcvarsall.bat` PATH expansion. Package
+validation uses CMake's Visual Studio generator without a developer shell.
 macOS needs an arm64 host, Xcode command-line tools, CMake 3.26+, Ninja, Python 3,
 pkg-config and icu4c (`brew install cmake ninja pkg-config icu4c`).
 Both need Git, access to GitHub and Microsoft's SDK/NuGet feeds, and tens of GB
