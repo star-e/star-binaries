@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Star.DotNet;
 
@@ -13,17 +14,21 @@ public static unsafe class Smoke
         public nint CoreLibPath;
         public nint Version;
         public nint Revision;
+        public nint Log;
+        public nint Profile;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     public static int Run(nint data, int size)
     {
+        nint log = 0;
         // Exceptions must never unwind across the C ABI.
         try
         {
             if (data == 0 || size != sizeof(Request))
                 throw new ArgumentException("Invalid native request");
             var request = *(Request*)data;
+            log = request.Log;
             var expectedCoreLib = Marshal.PtrToStringUTF8(request.CoreLibPath)!;
             var version = Marshal.PtrToStringUTF8(request.Version)!;
             var revision = Marshal.PtrToStringUTF8(request.Revision)!;
@@ -46,14 +51,32 @@ public static unsafe class Smoke
             GC.WaitForPendingFinalizers();
             if (bytes[^1] != 42)
                 throw new InvalidOperationException("Managed allocation failed");
-            Console.WriteLine($"CoreLib: {coreLib.Location}");
-            Console.WriteLine($"Runtime: {RuntimeInformation.FrameworkDescription}; source: {information}");
+            var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            try
+            {
+                if (Marshal.ReadByte(handle.AddrOfPinnedObject(), bytes.Length - 1) != 42)
+                    throw new InvalidOperationException("Pinned memory read failed");
+            }
+            finally { handle.Free(); }
+            Features.Check(Path.GetDirectoryName(coreLib.Location)!,
+                Marshal.PtrToStringUTF8(request.Profile)!);
+            WriteLog(log, $"CoreLib: {coreLib.Location}");
+            WriteLog(log, $"Runtime: {RuntimeInformation.FrameworkDescription}; source: {information}");
+            WriteLog(log, "STAR_DOTNET_BASE_FEATURES_PASSED");
             return 0;
         }
         catch (Exception error)
         {
-            Console.Error.WriteLine(error);
+            WriteLog(log, error.ToString());
             return 1;
         }
+    }
+
+    private static void WriteLog(nint log, string message)
+    {
+        if (log == 0) return;
+        var bytes = Encoding.UTF8.GetBytes(message);
+        fixed (byte* pointer = bytes)
+            ((delegate* unmanaged[Cdecl]<byte*, int, void>)log)(pointer, bytes.Length);
     }
 }

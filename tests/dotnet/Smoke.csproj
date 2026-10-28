@@ -10,4 +10,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="plugin/**/*.cs" />
+  </ItemGroup>
 </Project>

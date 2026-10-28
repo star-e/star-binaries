@@ -25,6 +25,7 @@ endif()
 # Build in an isolated directory: never write obj/bin into the source checkout.
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed-source")
 configure_file(Smoke.cs "${CMAKE_CURRENT_BINARY_DIR}/managed-source/Smoke.cs" COPYONLY)
+configure_file(Features.cs "${CMAKE_CURRENT_BINARY_DIR}/managed-source/Features.cs" COPYONLY)
 configure_file(Smoke.csproj "${CMAKE_CURRENT_BINARY_DIR}/managed-source/Smoke.csproj" COPYONLY)
 configure_file(NuGet.Config "${CMAKE_CURRENT_BINARY_DIR}/managed-source/NuGet.Config" COPYONLY)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/managed-source/global.json"
@@ -36,24 +37,47 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/managed/Star.DotNet.Smoke
     "${DOTNET_EXECUTABLE}" build Smoke.csproj -c Release
     --output "${CMAKE_CURRENT_BINARY_DIR}/managed" --nologo
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed-source"
-  DEPENDS Smoke.cs Smoke.csproj NuGet.Config
+  DEPENDS Smoke.cs Features.cs Smoke.csproj NuGet.Config
     "${CMAKE_CURRENT_BINARY_DIR}/managed-source/global.json" VERBATIM)
 add_custom_target(dotnet_managed ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/managed/Star.DotNet.Smoke.dll")
+foreach(file Plugin.cs Plugin.csproj dependency/Dependency.cs dependency/Dependency.csproj)
+  configure_file("plugin/${file}" "${CMAKE_CURRENT_BINARY_DIR}/plugin-source/${file}" COPYONLY)
+endforeach()
+configure_file(NuGet.Config "${CMAKE_CURRENT_BINARY_DIR}/plugin-source/NuGet.Config" COPYONLY)
+configure_file("${CMAKE_CURRENT_BINARY_DIR}/managed-source/global.json"
+  "${CMAKE_CURRENT_BINARY_DIR}/plugin-source/global.json" COPYONLY)
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/managed/plugin/Star.DotNet.Plugin.dll"
+  "${CMAKE_CURRENT_BINARY_DIR}/managed/plugin/Star.DotNet.PluginDependency.dll"
+  COMMAND "${CMAKE_COMMAND}" -E env --unset=LIB --unset=LIBPATH DOTNET_CLI_TELEMETRY_OPTOUT=1
+    DOTNET_GENERATE_ASPNET_CERTIFICATE=false DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=false
+    "DOTNET_CLI_HOME=${CMAKE_CURRENT_BINARY_DIR}/dotnet-home"
+    "${DOTNET_EXECUTABLE}" build Plugin.csproj -c Release
+    --output "${CMAKE_CURRENT_BINARY_DIR}/managed/plugin" --nologo
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/plugin-source"
+  DEPENDS plugin/Plugin.cs plugin/Plugin.csproj plugin/dependency/Dependency.cs
+    plugin/dependency/Dependency.csproj NuGet.Config
+    "${CMAKE_CURRENT_BINARY_DIR}/plugin-source/global.json" VERBATIM)
+add_custom_target(dotnet_plugin ALL DEPENDS
+  "${CMAKE_CURRENT_BINARY_DIR}/managed/plugin/Star.DotNet.Plugin.dll"
+  "${CMAKE_CURRENT_BINARY_DIR}/managed/plugin/Star.DotNet.PluginDependency.dll")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed")
 set(runtime_version "${StarDotNet_RUNTIME_VERSION}")
 configure_file(runtimeconfig.json.in "${CMAKE_CURRENT_BINARY_DIR}/managed/Star.DotNet.Smoke.runtimeconfig.json" @ONLY)
 set(runtime_version "99.0.0-star.missing")
 configure_file(runtimeconfig.json.in "${CMAKE_CURRENT_BINARY_DIR}/missing.runtimeconfig.json" @ONLY)
 enable_testing()
+if(NOT DEFINED StarDotNet_PROFILE)
+  set(StarDotNet_PROFILE full)
+endif()
 add_test(NAME dotnet.native-managed-callback COMMAND dotnet_consumer
   "${STAR_SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/managed/Star.DotNet.Smoke.dll"
   "${CMAKE_CURRENT_BINARY_DIR}/managed/Star.DotNet.Smoke.runtimeconfig.json"
-  "${StarDotNet_RUNTIME_VERSION}" "${StarDotNet_REVISION}")
+  "${StarDotNet_RUNTIME_VERSION}" "${StarDotNet_REVISION}" "${StarDotNet_PROFILE}")
 set_tests_properties(dotnet.native-managed-callback PROPERTIES
   TIMEOUT 60 PASS_REGULAR_EXPRESSION STAR_DOTNET_SMOKE_PASSED)
 add_test(NAME dotnet.reject-missing-runtime COMMAND dotnet_consumer
   "${STAR_SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/managed/Star.DotNet.Smoke.dll"
   "${CMAKE_CURRENT_BINARY_DIR}/missing.runtimeconfig.json"
-  "${StarDotNet_RUNTIME_VERSION}" "${StarDotNet_REVISION}" --expect-missing-runtime)
+  "${StarDotNet_RUNTIME_VERSION}" "${StarDotNet_REVISION}" "${StarDotNet_PROFILE}" --expect-missing-runtime)
 set_tests_properties(dotnet.reject-missing-runtime PROPERTIES
   TIMEOUT 60 PASS_REGULAR_EXPRESSION STAR_DOTNET_MISSING_RUNTIME_REJECTED)

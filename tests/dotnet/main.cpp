@@ -11,12 +11,21 @@ int HOST_CDECL nativeCallback(int value) noexcept {
   return value + 1;
 }
 
+void HOST_CDECL logMessage(const unsigned char* message, int length) noexcept {
+  if (message && length > 0) {
+    std::fwrite(message, 1, static_cast<size_t>(length), stdout);
+    std::fputc('\n', stdout);
+  }
+}
+
 struct Request {
   int(HOST_CDECL* callback)(int);
   // The test ABI uses UTF-8 on both platforms, independently of hostfxr's char_t.
   const char* coreLibPath;
   const char* version;
   const char* revision;
+  void(HOST_CDECL* log)(const unsigned char*, int);
+  const char* profile;
 };
 
 } // namespace
@@ -27,9 +36,9 @@ int wmain(int argc, wchar_t** argv) {
 int main(int argc, char** argv) {
 #endif
   try {
-    require(argc == 6 || argc == 7, "Usage: consumer <sdk> <assembly> <runtimeconfig> <version> <revision> [--expect-missing-runtime]");
-    const bool expectMissing = argc == 7 && std::basic_string<char_t>(argv[6]) == HOST_TEXT("--expect-missing-runtime");
-    require(argc == 6 || expectMissing, "Unknown argument");
+    require(argc == 7 || argc == 8, "Usage: consumer <sdk> <assembly> <runtimeconfig> <version> <revision> <profile> [--expect-missing-runtime]");
+    const bool expectMissing = argc == 8 && std::basic_string<char_t>(argv[7]) == HOST_TEXT("--expect-missing-runtime");
+    require(argc == 7 || expectMissing, "Unknown argument");
     const auto sdk = fs::canonical(argv[1]);
     const auto assembly = fs::canonical(argv[2]);
     const auto config = fs::canonical(argv[3]);
@@ -75,7 +84,8 @@ int main(int argc, char** argv) {
     const auto coreLib = (framework / "System.Private.CoreLib.dll").u8string();
     const auto version = fs::path(argv[4]).u8string();
     const auto revision = fs::path(argv[5]).u8string();
-    Request request{nativeCallback, coreLib.c_str(), version.c_str(), revision.c_str()};
+    const auto profile = fs::path(argv[6]).u8string();
+    Request request{nativeCallback, coreLib.c_str(), version.c_str(), revision.c_str(), logMessage, profile.c_str()};
     using Run = int(HOST_CDECL*)(void*, int);
     require(reinterpret_cast<Run>(method)(&request, sizeof(request)) == 0, "Managed smoke test failed");
     require(callbackCount == 1, "Native callback count mismatch");

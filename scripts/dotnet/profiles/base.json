@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "base",
-  "status": "draft",
+  "status": "experimental",
   "sourceRevision": "474ed963699fc29809015392738a15231aaae2de",
   "targets": ["x64-windows-star", "arm64-osx-star"],
   "policy": {
