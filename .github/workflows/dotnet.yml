@@ -1,0 +1,65 @@
+name: Build CoreCLR SDK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: CoreCLR ${{ matrix.target.triplet }} Release
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - os: windows-2022
+            triplet: x64-windows-star
+            jobs: 4
+          - os: macos-15
+            triplet: arm64-osx-star
+            jobs: 2
+    env:
+      BUILD_TRIPLET: ${{ matrix.target.triplet }}
+      BUILD_JOBS: ${{ matrix.target.jobs }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          brew install cmake ninja pkg-config icu4c
+          python3 --version
+          xcodebuild -version
+      - name: Build and validate relocated SDK
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/dotnet | Out-Null
+          & cmake "-DTRIPLET=$env:BUILD_TRIPLET" "-DJOBS=$env:BUILD_JOBS" -P scripts/build-dotnet.cmake 2>&1 | Tee-Object out/dotnet/pipeline.log
+          if ($LASTEXITCODE -ne 0) { throw 'CoreCLR build or consumer validation failed' }
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dotnet-${{ matrix.target.triplet }}-Release-sdk
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true
+          path: |
+            out/dotnet/${{ matrix.target.triplet }}/Release/*.zip
+            out/dotnet/${{ matrix.target.triplet }}/Release/*.tar.gz
+            out/dotnet/${{ matrix.target.triplet }}/Release/*.sha256
+      - name: Upload build and runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: dotnet-${{ matrix.target.triplet }}-Release-logs
+          if-no-files-found: warn
+          overwrite: true
+          path: |
+            out/dotnet/*.log
+            out/dotnet/source/artifacts/log/Release/**/*.log
+            out/dotnet/source/artifacts/log/Release/**/*.binlog
+            out/dotnet/${{ matrix.target.triplet }}/Release/**/CMakeConfigureLog.yaml
+            out/dotnet/${{ matrix.target.triplet }}/Release/**/Testing/Temporary/*.log
+

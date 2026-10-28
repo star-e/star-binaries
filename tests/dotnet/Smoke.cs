@@ -24,12 +24,12 @@ public static unsafe class Smoke
             if (data == 0 || size != sizeof(Request))
                 throw new ArgumentException("Invalid native request");
             var request = *(Request*)data;
-            var expectedCoreLib = Marshal.PtrToStringUni(request.CoreLibPath)!;
-            var version = Marshal.PtrToStringUni(request.Version)!;
-            var revision = Marshal.PtrToStringUni(request.Revision)!;
+            var expectedCoreLib = Marshal.PtrToStringUTF8(request.CoreLibPath)!;
+            var version = Marshal.PtrToStringUTF8(request.Version)!;
+            var revision = Marshal.PtrToStringUTF8(request.Revision)!;
             var coreLib = typeof(object).Assembly;
             if (!string.Equals(Path.GetFullPath(coreLib.Location), Path.GetFullPath(expectedCoreLib),
-                    StringComparison.OrdinalIgnoreCase))
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                 throw new InvalidOperationException($"Wrong CoreLib: {coreLib.Location}");
             var information = coreLib.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
             if (!information.StartsWith(version + "+", StringComparison.Ordinal) ||

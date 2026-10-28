@@ -1,9 +1,10 @@
 # CoreCLR SDK
 
 Native C++ applications host .NET directly. This package contains CoreCLR,
-CoreLib, the base class libraries and native hosting components. Its first
-target is **Windows x64, Release**. Mobile hosts and engine/codegen integration
-are subsequent work.
+CoreLib, the base class libraries and native hosting components, without MAUI.
+Build targets are **Windows x64** and **macOS arm64**, both Release. Windows has
+been exercised locally; macOS execution is validated by its hosted CI job.
+Mobile hosts and engine/codegen integration are subsequent work.
 
 [dotnet-version.cmake](../dotnet-version.cmake) pins upstream
 `v11.0.0-rc.3.26522.148` and its full commit. Our unsigned source build uses
@@ -19,11 +20,13 @@ preserves upstream dependency versions; the hosting smoke test does not exercise
 
 ## Build and verify
 
-Install Visual Studio C++ x64 tools, a Windows SDK, CMake 3.26+, Ninja and Python
-3.7.4+. Enable Windows long paths. The script initializes the VS developer
-environment and configures long-path support in its own Git checkout. It needs
-network access to GitHub and Microsoft's SDK/NuGet feeds, and tens of GB of disk
-space for the source build.
+Windows needs Visual Studio C++ x64 tools, a Windows SDK, CMake 3.26+, Ninja and
+Python 3.7.4+. Enable Windows long paths; the script initializes the VS developer
+environment and configures long-path support in its own Git checkout.
+macOS needs an arm64 host, Xcode command-line tools, CMake 3.26+, Ninja, Python 3,
+pkg-config and icu4c (`brew install cmake ninja pkg-config icu4c`).
+Both need Git, access to GitHub and Microsoft's SDK/NuGet feeds, and tens of GB
+of disk space. Intel macOS/Rosetta builds are rejected.
 
 From the repository root:
 
@@ -33,8 +36,14 @@ cmake -DTRIPLET=x64-windows-star -DJOBS=4 -P scripts/build-dotnet.cmake
 cmake -DPRINT_ARGS=ON -P scripts/build-dotnet.cmake
 ```
 
+On macOS arm64:
+
+```sh
+cmake -DTRIPLET=arm64-osx-star -DJOBS=2 -P scripts/build-dotnet.cmake
+```
+
 The script fetches a clean pinned checkout under `out/dotnet/source`, builds
-CoreCLR/CoreLib/libraries/host/packs, and packages the upstream runtime ZIP with
+CoreCLR/CoreLib/libraries/host/packs, and packages the upstream runtime archive with
 hosting headers and nethost. Build output is in `out/dotnet/source-build.log`;
 upstream detailed logs remain under `source/artifacts/log/Release`.
 Reruns use upstream incremental builds, checking the source revision and local
@@ -50,23 +59,43 @@ containing spaces, verifies every payload SHA-256, and builds/runs the consumer:
 - Requesting a missing framework with roll-forward disabled must fail without
   loading CoreCLR. A successful test requires the expected marker and exit code.
 
-The final ZIP and SHA-256 sidecar are under:
+The final archive and SHA-256 sidecar are under:
 
 ```text
 out/dotnet/x64-windows-star/Release/
   star-dotnet-11.0.0-rc.3.26522.148-x64-windows-star-release-sdk.zip
+out/dotnet/arm64-osx-star/Release/
+  star-dotnet-11.0.0-rc.3.26522.148-arm64-osx-star-release-sdk.tar.gz
 ```
 
 Staging directories retain the extracted package, consumer build and test logs.
-An unsuccessful run does not replace an earlier validated ZIP. This pipeline
-is invoked locally; there is currently no CoreCLR CI/release workflow.
+An unsuccessful run does not replace an earlier validated archive. macOS uses
+`tar.gz` to preserve executable permissions.
+
+## GitHub Actions
+
+- [Build CoreCLR SDK](../.github/workflows/dotnet.yml): manually builds both
+  targets, tests the relocated packages, and uploads
+  `dotnet-<triplet>-Release-sdk` plus separate logs. A package is uploaded only
+  after its consumer tests pass; logs are uploaded even on failure.
+- [Validate CoreCLR SDK](../.github/workflows/validate-dotnet.yml): select the
+  build's numeric run ID and one triplet. Downloads that artifact from this
+  repository, verifies its archive SHA-256, pinned provenance and payload files,
+  then rebuilds/runs the consumer without rebuilding CoreCLR. It uses the
+  selected workflow revision's version pin; choose a matching revision when
+  validating an older package. Successful validation uploads a receipt with
+  the archive hash and runtime source revision.
+
+These workflows are manual, do not run on every push, and do not publish releases.
+The macOS job must pass on an actual arm64 runner before treating that package
+as validated; Windows checks and `PRINT_ARGS` do not establish macOS support.
 
 ## Package and consume
 
 ```text
 include/              nethost.h, hostfxr.h, coreclr_delegates.h, host_error_codes.h
-bin/                  nethost.dll
-lib/                  nethost.lib (DLL import library)
+bin/                  nethost.dll or libnethost.dylib
+lib/                  nethost.lib (Windows import lib) or libnethost.a (macOS static lib)
 runtime/              upstream dotnet runtime layout, including host/fxr and shared
 share/dotnet/         relocatable StarDotNetConfig.cmake
 provenance/           source/build identity, upstream global.json, payload checksums
@@ -93,7 +122,18 @@ components; it does not require installing that runtime globally.
 test exits the process after its synchronous work; it does not claim CLR unload
 or engine-session lifetime coverage.
 
-Validate an already extracted package without rebuilding CoreCLR:
+Validate a downloaded archive with its adjacent `.sha256` file:
+
+```powershell
+cmake "-DARCHIVE=D:/SDKs/star-dotnet-11.0.0-rc.3.26522.148-x64-windows-star-release-sdk.zip" -P scripts/dotnet/validate-archive.cmake
+```
+
+On macOS use the `.tar.gz` path and `-DTRIPLET=arm64-osx-star` (also the macOS
+default). Validation requires a native host matching the package. Each archive
+check extracts to a fresh path containing spaces and writes `validated.json`
+only after both runtime tests pass.
+
+Validate an already extracted package:
 
 ```powershell
 cmake "-DSTAR_SDK_ROOT=D:/SDKs/star-dotnet-11.0.0-rc.3.26522.148-x64-windows-star-release-sdk" -P scripts/dotnet/validate.cmake
@@ -104,5 +144,7 @@ an existing copy of that exact SDK; `BUILD_DIR` selects a consumer build directo
 The managed test has no external NuGet dependencies.
 
 Upstream references: [release](https://github.com/dotnet/runtime/releases/tag/v11.0.0-rc.3.26522.148),
-[build requirements](https://github.com/dotnet/runtime/blob/v11.0.0-rc.3.26522.148/docs/workflow/requirements/windows-requirements.md),
+[Windows requirements](https://github.com/dotnet/runtime/blob/v11.0.0-rc.3.26522.148/docs/workflow/requirements/windows-requirements.md),
+[macOS requirements](https://github.com/dotnet/runtime/blob/v11.0.0-rc.3.26522.148/docs/workflow/requirements/macos-requirements.md),
+[SDK checksums](https://builds.dotnet.microsoft.com/dotnet/release-metadata/11.0/releases.json),
 [native hosting](https://learn.microsoft.com/en-us/dotnet/core/tutorials/netcore-hosting).

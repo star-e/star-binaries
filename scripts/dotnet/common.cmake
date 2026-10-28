@@ -12,8 +12,8 @@ endfunction()
 function(star_dotnet_acquire_sdk work result)
   file(MAKE_DIRECTORY "${work}/tools")
   file(LOCK "${work}/tools/sdk.lock" GUARD FUNCTION TIMEOUT 0)
-  set(archive "${work}/downloads/dotnet-sdk-${STAR_DOTNET_SDK_VERSION}-win-x64.zip")
-  set(compiler "${work}/tools/dotnet-sdk-${STAR_DOTNET_SDK_VERSION}")
+  set(archive "${work}/downloads/${dotnet_sdk_archive}")
+  set(compiler "${work}/tools/dotnet-sdk-${STAR_DOTNET_SDK_VERSION}-${dotnet_rid}")
   if(NOT EXISTS "${compiler}/sdk/${STAR_DOTNET_SDK_VERSION}/dotnet.dll")
     file(MAKE_DIRECTORY "${work}/downloads" "${compiler}")
     if(EXISTS "${archive}")
@@ -32,10 +32,10 @@ function(star_dotnet_acquire_sdk work result)
     "{\"sdk\":{\"version\":\"${STAR_DOTNET_SDK_VERSION}\",\"rollForward\":\"disable\",\"allowPrerelease\":true}}\n")
   execute_process(COMMAND "${CMAKE_COMMAND}" -E env DOTNET_CLI_TELEMETRY_OPTOUT=1
     DOTNET_GENERATE_ASPNET_CERTIFICATE=false DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=false
-    "${compiler}/dotnet.exe" --version WORKING_DIRECTORY "${compiler}"
+    "${compiler}/${dotnet_executable}" --version WORKING_DIRECTORY "${compiler}"
     OUTPUT_VARIABLE actual_version OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
   if(NOT actual_version STREQUAL STAR_DOTNET_SDK_VERSION)
     message(FATAL_ERROR "Unexpected consumer SDK: ${actual_version}")
   endif()
-  set(${result} "${compiler}/dotnet.exe" PARENT_SCOPE)
+  set(${result} "${compiler}/${dotnet_executable}" PARENT_SCOPE)
 endfunction()

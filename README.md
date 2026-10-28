@@ -6,7 +6,7 @@ Build and distribute third-party C++ SDKs for star-platforms and star-engine.
   Boost.DynamicBitset, stdexec and Microsoft GSL (`ms-gsl`), resolved by the pinned
   [vcpkg manifest](vcpkg.json).
 - **V8:** a separate GN build pinned by [v8-version.cmake](v8-version.cmake).
-- **CoreCLR:** a source build of .NET 11 RC3, initially Windows x64 Release,
+- **CoreCLR:** a source build of .NET 11 RC3 for Windows x64 and macOS arm64 Release,
   pinned by [dotnet-version.cmake](dotnet-version.cmake).
 - **Targets:** Windows x64, macOS arm64, Android arm64/x64, and iOS
   device/simulator arm64. SDKs contain both Release and Debug.

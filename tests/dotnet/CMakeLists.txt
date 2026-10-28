@@ -1,20 +1,26 @@
 cmake_minimum_required(VERSION 3.26)
 project(StarDotNetConsumer LANGUAGES CXX)
-if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-  message(FATAL_ERROR "The first CoreCLR consumer requires Windows x64")
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT (WIN32 OR APPLE))
+  message(FATAL_ERROR "The CoreCLR consumer requires Windows x64 or macOS arm64")
 endif()
 find_package(StarDotNet CONFIG REQUIRED PATHS "${STAR_SDK_ROOT}/share/dotnet"
   NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
-if(NOT StarDotNet_TRIPLET STREQUAL "x64-windows-star")
+if(WIN32 AND StarDotNet_TRIPLET STREQUAL "x64-windows-star" AND
+   CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+elseif(APPLE AND StarDotNet_TRIPLET STREQUAL "arm64-osx-star" AND
+       CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+else()
   message(FATAL_ERROR "Unexpected CoreCLR SDK target")
 endif()
 if(NOT EXISTS "${DOTNET_EXECUTABLE}")
   message(FATAL_ERROR "Pass the pinned consumer compiler as DOTNET_EXECUTABLE")
 endif()
 add_executable(dotnet_consumer main.cpp)
-target_link_libraries(dotnet_consumer PRIVATE StarDotNet::Hosting)
-target_compile_features(dotnet_consumer PRIVATE cxx_std_17)
-target_compile_definitions(dotnet_consumer PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(dotnet_consumer PRIVATE StarDotNet::Hosting ${CMAKE_DL_LIBS})
+set_target_properties(dotnet_consumer PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+if(WIN32)
+  target_compile_definitions(dotnet_consumer PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 
 # Build in an isolated directory: never write obj/bin into the source checkout.
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed-source")

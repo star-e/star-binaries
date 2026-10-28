@@ -1,2 +1,3 @@
 # Keep unified diffs compatible with upstream LF source files on Windows.
 *.patch text eol=lf
+*.sh text eol=lf
