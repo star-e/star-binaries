@@ -1,7 +1,21 @@
-name: Build CoreCLR SDK
+name: CoreCLR SDK
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - dotnet-version.cmake
+      - scripts/build-dotnet.cmake
+      - scripts/package-dotnet.cmake
+      - scripts/dotnet/**
+      - tests/dotnet/**
+      - .github/workflows/dotnet.yml
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: Rebuild CoreCLR even if a matching full SDK is cached
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,6 +25,9 @@ jobs:
     name: CoreCLR ${{ matrix.target.triplet }} Release
     runs-on: ${{ matrix.target.os }}
     timeout-minutes: 180
+    concurrency:
+      group: coreclr-${{ github.ref }}-${{ matrix.target.triplet }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -26,29 +43,79 @@ jobs:
       BUILD_JOBS: ${{ matrix.target.jobs }}
     steps:
       - uses: actions/checkout@v6
+      - name: Check SDK reuse decisions
+        shell: pwsh
+        run: ./tests/dotnet/ci-sdk.test.ps1
+      - name: Identify full SDK build inputs
+        id: config
+        shell: pwsh
+        env:
+          FULL_SDK_HASH: ${{ hashFiles('dotnet-version.cmake', 'scripts/build-dotnet.cmake', 'scripts/dotnet/build-windows.ps1', 'scripts/dotnet/build-macos.sh', 'scripts/dotnet/common.cmake', 'scripts/dotnet/platform.cmake', 'scripts/dotnet/StarDotNetConfig.cmake.in') }}
+        run: |
+          if (!$env:FULL_SDK_HASH) { throw 'Full SDK input hash is empty' }
+          "cache_prefix=coreclr-full-v1-$env:BUILD_TRIPLET-$env:FULL_SDK_HASH-" >> $env:GITHUB_OUTPUT
+      - name: Restore matching full SDK archive
+        id: cache
+        if: ${{ !inputs.force_rebuild }}
+        uses: actions/cache/restore@v5
+        with:
+          path: out/dotnet/full-sdk/${{ matrix.target.triplet }}
+          key: ${{ steps.config.outputs.cache_prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.config.outputs.cache_prefix }}
+          enableCrossOsArchive: false
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
         run: |
           test "$(uname -m)" = arm64
-          brew install cmake ninja pkg-config icu4c
+          brew install cmake ninja
+          if [ -z "$MATCHED_CACHE" ]; then
+            brew install pkg-config icu4c
+          fi
           python3 --version
           xcodebuild -version
-      - name: Build and validate relocated SDK
+        env:
+          MATCHED_CACHE: ${{ steps.cache.outputs.cache-matched-key }}
+      - name: Prepare and validate full SDK
+        id: prepare
+        timeout-minutes: ${{ steps.cache.outputs.cache-matched-key != '' && 30 || 180 }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force out/dotnet | Out-Null
-          & cmake "-DTRIPLET=$env:BUILD_TRIPLET" "-DJOBS=$env:BUILD_JOBS" -P scripts/build-dotnet.cmake 2>&1 | Tee-Object out/dotnet/pipeline.log
-          if ($LASTEXITCODE -ne 0) { throw 'CoreCLR build or consumer validation failed' }
-      - uses: actions/upload-artifact@v6
+          & ./scripts/dotnet/prepare-ci-sdk.ps1 -Triplet $env:BUILD_TRIPLET -Jobs $env:BUILD_JOBS 2>&1 | Tee-Object out/dotnet/pipeline.log
+      - name: Cache newly built and validated full SDK
+        if: steps.prepare.outputs.built == 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: out/dotnet/full-sdk/${{ matrix.target.triplet }}
+          key: ${{ steps.config.outputs.cache_prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: false
+      - name: Upload full SDK
+        uses: actions/upload-artifact@v6
         with:
           name: dotnet-${{ matrix.target.triplet }}-Release-sdk
           compression-level: 0
           if-no-files-found: error
           overwrite: true
+          path: out/dotnet/full-sdk/${{ matrix.target.triplet }}/*
+      - name: Package and validate base SDK
+        timeout-minutes: 30
+        shell: pwsh
+        env:
+          FULL_SDK_ROOT: ${{ steps.prepare.outputs.sdk_root }}
+        run: |
+          & cmake "-DSTAR_SDK_ROOT=$env:FULL_SDK_ROOT" -DPROFILE=base -P scripts/package-dotnet.cmake 2>&1 | Tee-Object out/dotnet/base-package.log
+          if ($LASTEXITCODE -ne 0) { throw 'Base SDK packaging or validation failed' }
+      - name: Upload base SDK
+        uses: actions/upload-artifact@v6
+        with:
+          name: dotnet-${{ matrix.target.triplet }}-Release-base-sdk
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true
           path: |
-            out/dotnet/${{ matrix.target.triplet }}/Release/*.zip
-            out/dotnet/${{ matrix.target.triplet }}/Release/*.tar.gz
-            out/dotnet/${{ matrix.target.triplet }}/Release/*.sha256
+            out/dotnet/${{ matrix.target.triplet }}/Release/*-base-sdk.zip
+            out/dotnet/${{ matrix.target.triplet }}/Release/*-base-sdk.tar.gz
+            out/dotnet/${{ matrix.target.triplet }}/Release/*-base-sdk.*.sha256
       - name: Upload build and runtime diagnostics
         if: always()
         uses: actions/upload-artifact@v6
@@ -62,4 +129,8 @@ jobs:
             out/dotnet/source/artifacts/log/Release/**/*.binlog
             out/dotnet/${{ matrix.target.triplet }}/Release/**/CMakeConfigureLog.yaml
             out/dotnet/${{ matrix.target.triplet }}/Release/**/Testing/Temporary/*.log
+            out/dotnet/${{ matrix.target.triplet }}/Release/**/provenance/selection.json
+            out/dotnet/ci/**/validated.json
+            out/dotnet/ci/**/CMakeConfigureLog.yaml
+            out/dotnet/ci/**/Testing/Temporary/*.log
 

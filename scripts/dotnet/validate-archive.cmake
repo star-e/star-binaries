@@ -45,4 +45,7 @@ star_dotnet_run("${root}" "${CMAKE_COMMAND}" "-DTRIPLET=${TRIPLET}"
   "-DPROFILE=${PROFILE}" ${compiler_argument} -P "${root}/scripts/dotnet/validate.cmake")
 file(WRITE "${stage}/validated.json"
   "{\"archive\":\"${filename}\",\"sha256\":\"${actual_hash}\",\"sourceRevision\":\"${STAR_DOTNET_REVISION}\",\"triplet\":\"${TRIPLET}\",\"profile\":\"${PROFILE}\"}\n")
+if(DEFINED SDK_ROOT_FILE)
+  file(WRITE "${SDK_ROOT_FILE}" "${stage}/relocated sdk/${base}\n")
+endif()
 message(STATUS "CoreCLR package validation passed; receipt: ${stage}/validated.json")

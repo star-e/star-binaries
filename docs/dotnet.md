@@ -7,7 +7,7 @@ been exercised locally; macOS execution is validated by its hosted CI job.
 Mobile hosts and engine/codegen integration are subsequent work.
 
 The experimental [base runtime profile](dotnet-base.md) packages a smaller library
-selection from an existing SDK. Source builds and CI still produce the complete runtime.
+selection from an existing SDK. CI validates and uploads both full and base SDKs.
 
 [dotnet-version.cmake](../dotnet-version.cmake) pins upstream
 `v11.0.0-rc.3.26522.148` and its full commit. Our unsigned source build uses
@@ -77,19 +77,32 @@ An unsuccessful run does not replace an earlier validated archive. macOS uses
 
 ## GitHub Actions
 
-- [Build CoreCLR SDK](../.github/workflows/dotnet.yml): manually builds both
-  targets, tests the relocated packages, and uploads
-  `dotnet-<triplet>-Release-sdk` plus separate logs. A package is uploaded only
-  after its consumer tests pass; logs are uploaded even on failure.
-- [Validate CoreCLR SDK](../.github/workflows/validate-dotnet.yml): select the
-  build's numeric run ID and one triplet. Downloads that artifact from this
-  repository, verifies its archive SHA-256, pinned provenance and payload files,
-  then rebuilds/runs the consumer without rebuilding CoreCLR. It uses the
-  selected workflow revision's version pin; choose a matching revision when
-  validating an older package. Successful validation uploads a receipt with
-  the archive hash and runtime source revision.
+[CoreCLR SDK](../.github/workflows/dotnet.yml) combines building, packaging and
+validation for Windows x64 and macOS arm64. It runs on `main` pushes affecting the
+version pin, .NET scripts/tests or this workflow. Documentation-only changes do
+not trigger it. Manual **Run workflow** needs no run ID or operation selection;
+`force_rebuild` optionally bypasses the cache.
 
-These workflows are manual, do not run on every push, and do not publish releases.
+1. Restore a full SDK archive keyed by target, the version pin and full-build
+   scripts. No match (including an evicted cache) means build from pinned source.
+2. Verify the archive checksum, package provenance and payload checksums, then
+   run the current consumer from a relocated directory. Cache hits are always
+   revalidated; a corrupt/incompatible cache fails instead of silently rebuilding.
+3. Cache a newly built full SDK only after validation, then generate and validate
+   the base SDK using the current profile. Changing only the profile or tests
+   reuses the full SDK.
+
+Uploads are `dotnet-<triplet>-Release-sdk`,
+`dotnet-<triplet>-Release-base-sdk` and `dotnet-<triplet>-Release-logs`.
+Each SDK is uploaded after its checks pass; the full SDK remains available if
+base packaging fails. Logs and validation receipts are uploaded even on failure.
+Only archives and checksums are cached, not the large source/build tree.
+Existing artifacts from the old manual workflow do not seed this cache.
+
+Jobs are limited to 180 minutes; cached-SDK validation and base packaging each
+have a 30-minute step limit. New pushes queue behind an active build for the
+same branch/target instead of canceling it. The workflow does not publish releases.
+For independently downloaded archives, use the validation commands below.
 The macOS job must pass on an actual arm64 runner before treating that package
 as validated; Windows checks and `PRINT_ARGS` do not establish macOS support.
 

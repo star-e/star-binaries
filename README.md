@@ -29,10 +29,12 @@ Build and distribute third-party C++ SDKs for star-platforms and star-engine.
 | [Build iOS dependencies](.github/workflows/ios.yml) | Build both iOS SDKs; execute the simulator App |
 | [Build V8 13.6](.github/workflows/v8.yml) | Manually build V8 when build inputs change |
 | [Validate existing V8 SDKs](.github/workflows/validate-v8.yml) | Reuse SDKs and run current consumer checks without recompiling V8 |
+| [CoreCLR SDK](.github/workflows/dotnet.yml) | Automatically reuse/build a full SDK, validate and package the base SDK |
 | [Release all platforms](.github/workflows/release.yml) | Build ordinary dependencies, validate reused V8 SDKs, upload all assets |
 
 Ordinary platform workflows run on pushes to `main`, pull requests, manual
-dispatches and reusable release calls. V8 builds are manual. Publishing a GitHub
+dispatches and reusable release calls. CoreCLR runs on relevant `main` changes or
+manual dispatch, reusing matching full SDK caches. V8 builds are manual. Publishing a GitHub
 Release triggers distribution; pushing a tag or saving a draft alone does not.
 
 Consumers should pin the release tag, asset name and SHA-256. Published packages
