@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "name": "base",
+  "status": "draft",
+  "sourceRevision": "474ed963699fc29809015392738a15231aaae2de",
+  "targets": ["x64-windows-star", "arm64-osx-star"],
+  "policy": {
+    "selection": "roots-and-transitive-dependencies",
+    "excludedDependency": "error",
+    "trimManagedMembers": false,
+    "globalization": "upstream-default",
+    "scriptDependencies": "profile-or-explicit-application-dependency"
+  },
+  "managedRoots": {
+    "core": [
+      "System.Private.CoreLib",
+      "System.Runtime",
+      "System.Runtime.Extensions",
+      "System.Runtime.Handles",
+      "System.Buffers",
+      "System.Memory"
+    ],
+    "collections": [
+      "System.Collections",
+      "System.Collections.Concurrent",
+      "System.Collections.NonGeneric",
+      "System.Collections.Specialized",
+      "System.ObjectModel"
+    ],
+    "threading": [
+      "System.Threading",
+      "System.Threading.Thread",
+      "System.Threading.ThreadPool",
+      "System.Threading.Tasks",
+      "System.Threading.Tasks.Extensions",
+      "System.Threading.Timer"
+    ],
+    "interop": [
+      "System.Runtime.InteropServices",
+      "System.Runtime.InteropServices.RuntimeInformation",
+      "System.Runtime.CompilerServices.Unsafe"
+    ],
+    "assemblyLoading": [
+      "System.Runtime.Loader",
+      "System.Reflection",
+      "System.Reflection.Extensions",
+      "System.Reflection.Primitives"
+    ]
+  },
+  "nativeRoots": {
+    "x64-windows-star": {
+      "framework": ["coreclr.dll", "clrjit.dll", "hostpolicy.dll"],
+      "hostfxr": "hostfxr.dll",
+      "nethost": "nethost.dll"
+    },
+    "arm64-osx-star": {
+      "framework": [
+        "libcoreclr.dylib",
+        "libclrjit.dylib",
+        "libhostpolicy.dylib",
+        "libSystem.Native.dylib"
+      ],
+      "hostfxr": "libhostfxr.dylib",
+      "nethost": "libnethost.dylib"
+    }
+  },
+  "excludedManagedPatterns": [
+    "System.Xml*",
+    "System.Private.Xml*",
+    "System.Data*",
+    "System.Private.DataContractSerialization",
+    "System.Runtime.Serialization.Xml",
+    "System.Runtime.Serialization.Json",
+    "System.Runtime.Serialization.Formatters",
+    "System.Text.Json",
+    "System.Net*",
+    "System.Security.Cryptography*",
+    "System.IO.Compression*",
+    "Microsoft.VisualBasic*",
+    "Microsoft.CSharp",
+    "System.Console",
+    "System.Linq*",
+    "System.Text.RegularExpressions",
+    "System.Collections.Immutable",
+    "System.Threading.Channels",
+    "System.Threading.Tasks.Dataflow",
+    "System.Reflection.Emit*",
+    "System.Reflection.Metadata"
+  ]
+}

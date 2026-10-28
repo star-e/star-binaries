@@ -6,6 +6,9 @@ Build targets are **Windows x64** and **macOS arm64**, both Release. Windows has
 been exercised locally; macOS execution is validated by its hosted CI job.
 Mobile hosts and engine/codegen integration are subsequent work.
 
+The [base runtime profile](dotnet-base.md) proposes a smaller library selection
+for engine hosts. It is a draft; current builds still package the complete runtime.
+
 [dotnet-version.cmake](../dotnet-version.cmake) pins upstream
 `v11.0.0-rc.3.26522.148` and its full commit. Our unsigned source build uses
 `11.0.0-star.rc3.26522.148` to distinguish it from Microsoft's release binaries.
