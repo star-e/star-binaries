@@ -1,0 +1,13 @@
+get_filename_component(_star_dotnet_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(StarDotNet_VERSION "@STAR_DOTNET_VERSION@")
+set(StarDotNet_RUNTIME_VERSION "@STAR_DOTNET_RUNTIME_VERSION@")
+set(StarDotNet_REVISION "@STAR_DOTNET_REVISION@")
+set(StarDotNet_TRIPLET "x64-windows-star")
+set(StarDotNet_RUNTIME_ROOT "${_star_dotnet_root}/runtime")
+set(StarDotNet_NETHOST "${_star_dotnet_root}/bin/nethost.dll")
+if(NOT TARGET StarDotNet::Hosting)
+  add_library(StarDotNet::Hosting INTERFACE IMPORTED)
+  set_target_properties(StarDotNet::Hosting PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_star_dotnet_root}/include")
+endif()
+unset(_star_dotnet_root)
