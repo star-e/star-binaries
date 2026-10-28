@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="scripts/dotnet/profile-tool/ProfileTool.csproj" />
+  <Project Path="tests/dotnet/Smoke.csproj" />
+  <Project Path="tests/dotnet/plugin/Plugin.csproj" />
+  <Project Path="tests/dotnet/plugin/dependency/Dependency.csproj" />
+</Solution>

@@ -1,3 +1,4 @@
 {
-    "cmake.autoDetectSourceDirectory": false
+    "cmake.autoDetectSourceDirectory": false,
+    "dotnet.defaultSolution": "StarDotNet.slnx"
 }

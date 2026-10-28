@@ -21,6 +21,25 @@ The pinned upstream restore currently reports NU1902 for
 ([advisory](https://github.com/advisories/GHSA-2mxg-prvg-9jfg)). This pipeline
 preserves upstream dependency versions; the hosting smoke test does not exercise QUIC.
 
+## Editing C#
+
+VS Code needs a .NET SDK for C# project loading; a runtime alone is insufficient.
+Visual Studio's C# workload is not required for this workflow.
+[global.json](../global.json) selects the pinned compiler SDK from
+`out/dotnet/tools` (downloaded by package validation), then from the invoking
+`dotnet` installation. Keep its version and paths aligned with
+`STAR_DOTNET_SDK_VERSION` in `dotnet-version.cmake` when updating the pin.
+The [SDK paths setting](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json#paths)
+requires a .NET 10+ host. A fresh checkout needs either package validation to
+acquire the local SDK or a separately installed matching SDK.
+
+Open [StarDotNet.slnx](../StarDotNet.slnx) in C# Dev Kit; it contains only our
+four managed projects, excluding the downloaded runtime source under `out/`.
+The repository VS Code settings select it by default. In a multi-root workspace,
+use **.NET: Open Solution** if it is not selected automatically. After changing
+SDK configuration, run **Developer: Reload Window**. Check resolution from the
+repository directory with `dotnet --version`.
+
 ## Build and verify
 
 Windows needs Visual Studio C++ x64 tools, a Windows SDK, CMake 3.26+, Ninja and

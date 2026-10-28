@@ -68,3 +68,9 @@ vcpkg_installed/
 Testing/
 .cache/
 out/
+
+# C# editor restore/build output
+tests/dotnet/**/bin/
+tests/dotnet/**/obj/
+scripts/dotnet/profile-tool/bin/
+scripts/dotnet/profile-tool/obj/
