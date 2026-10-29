@@ -134,3 +134,97 @@ jobs:
             out/dotnet/ci/**/CMakeConfigureLog.yaml
             out/dotnet/ci/**/Testing/Temporary/*.log
 
+  mobile:
+    name: CoreCLR ${{ matrix.target.triplet }} Release runtime pack
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 240
+    concurrency:
+      group: coreclr-${{ github.ref }}-${{ matrix.target.triplet }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - os: ubuntu-24.04
+            triplet: arm64-android-star
+            jobs: 4
+          - os: ubuntu-24.04
+            triplet: x64-android-star
+            jobs: 4
+          - os: macos-15
+            triplet: arm64-ios-star
+            jobs: 2
+          - os: macos-15
+            triplet: arm64-ios-simulator-star
+            jobs: 2
+    env:
+      BUILD_TRIPLET: ${{ matrix.target.triplet }}
+      BUILD_JOBS: ${{ matrix.target.jobs }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check mobile orchestration and package validation
+        run: |
+          python3 tests/dotnet/mobile.test.py
+          bash -n scripts/dotnet/build-mobile.sh
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake cpio curl git libicu-dev \
+            libkrb5-dev liblttng-ust-dev libssl-dev lld lldb llvm ninja-build pigz python-is-python3
+      - name: Install Java for Android libraries
+        if: runner.os == 'Linux'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '23'
+      - name: Set up Android SDK
+        if: runner.os == 'Linux'
+        uses: android-actions/setup-android@v3
+      - name: Install pinned Android NDK
+        if: runner.os == 'Linux'
+        run: |
+          ndk_version=$(sed -n 's/^set(STAR_DOTNET_ANDROID_NDK_VERSION "\(.*\)")/\1/p' dotnet-version.cmake)
+          api=$(sed -n 's/^set(STAR_DOTNET_ANDROID_API \([0-9]*\))/\1/p' dotnet-version.cmake)
+          test -n "$ndk_version" && test -n "$api"
+          sdkmanager "ndk;$ndk_version" "platforms;android-$api" "platform-tools"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$ndk_version" >> "$GITHUB_ENV"
+      - name: Install Apple build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          brew install cmake ninja pkg-config icu4c
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphonesimulator --show-sdk-version
+      - name: Build and check CoreCLR runtime pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/dotnet
+          cmake "-DTRIPLET=$BUILD_TRIPLET" "-DJOBS=$BUILD_JOBS" \
+            -P scripts/build-dotnet.cmake 2>&1 | tee out/dotnet/pipeline.log
+      - name: Upload mobile runtime pack
+        uses: actions/upload-artifact@v6
+        with:
+          name: dotnet-${{ matrix.target.triplet }}-Release-runtime-pack
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true
+          path: |
+            out/dotnet/${{ matrix.target.triplet }}/Release/*-runtime-pack.tar.gz
+            out/dotnet/${{ matrix.target.triplet }}/Release/*-runtime-pack.tar.gz.sha256
+      - name: Upload mobile build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: dotnet-${{ matrix.target.triplet }}-Release-logs
+          if-no-files-found: warn
+          overwrite: true
+          path: |
+            out/dotnet/*.log
+            out/dotnet/source/artifacts/log/Release/**/*.log
+            out/dotnet/source/artifacts/log/Release/**/*.binlog
+            out/dotnet/${{ matrix.target.triplet }}/Release/**/provenance/build.json
+

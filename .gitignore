@@ -68,6 +68,7 @@ vcpkg_installed/
 Testing/
 .cache/
 out/
+__pycache__/
 
 # C# editor restore/build output
 tests/dotnet/**/bin/

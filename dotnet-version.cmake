@@ -7,6 +7,10 @@ set(STAR_DOTNET_VERSION_SUFFIX "star.rc3.26522.148")
 set(STAR_DOTNET_RUNTIME_VERSION "11.0.0-${STAR_DOTNET_VERSION_SUFFIX}")
 set(STAR_DOTNET_SUBSETS "clr+libs+host.native+packs.product")
 
+# The mobile toolchain belongs to this runtime pin, independently of V8/vcpkg.
+set(STAR_DOTNET_ANDROID_NDK_VERSION "27.2.12479018")
+set(STAR_DOTNET_ANDROID_API 24)
+
 # Consumer compiler only. Building runtime itself uses its global.json SDK.
 set(STAR_DOTNET_SDK_VERSION "11.0.100-rc.3.26522.148")
 # SHA-512 values from Microsoft's 11.0 release metadata, indexed by host RID.

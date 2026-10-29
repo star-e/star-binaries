@@ -2,9 +2,11 @@
 
 Native C++ applications host .NET directly. This package contains CoreCLR,
 CoreLib, the base class libraries and native hosting components, without MAUI.
-Build targets are **Windows x64** and **macOS arm64**, both Release. Windows has
-been exercised locally; macOS execution is validated by its hosted CI job.
-Mobile hosts and engine/codegen integration are subsequent work.
+Desktop SDK targets are **Windows x64** and **macOS arm64**, both Release, with
+packaged-runtime execution checks. Mobile build jobs target **Android arm64/x64**
+and **iOS device/simulator arm64**; they check runtime packs without executing them.
+The mobile build scripts still need their first hosted CI result. Mobile hosts
+and engine/codegen integration follow compilation and packaging.
 
 The experimental [base runtime profile](dotnet-base.md) packages a smaller library
 selection from an existing SDK. CI validates and uploads both full and base SDKs.
@@ -97,10 +99,66 @@ Staging directories retain the extracted package, consumer build and test logs.
 An unsuccessful run does not replace an earlier validated archive. macOS uses
 `tar.gz` to preserve executable permissions.
 
+## Android and iOS builds
+
+The same build entry selects a mobile pipeline by triplet:
+
+| Triplet | Build host | Execution model |
+| --- | --- | --- |
+| `arm64-android-star` | Linux x64 | CoreCLR JIT + ReadyToRun |
+| `x64-android-star` | Linux x64 | CoreCLR JIT + ReadyToRun |
+| `arm64-ios-star` | macOS arm64, full Xcode | CoreCLR interpreter + ReadyToRun |
+| `arm64-ios-simulator-star` | macOS arm64, full Xcode | CoreCLR interpreter + ReadyToRun |
+
+Android uses **NDK r27c (`27.2.12479018`)**, independently of the V8/vcpkg NDK.
+Install the pinned NDK, Android SDK/platform 24 and OpenJDK 23 (Ubuntu OpenJDK 21
+also works upstream). Set `ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT`; the build
+rejects a mismatched NDK. The pinned runtime sets minimum native API 24.
+Linux also needs the upstream native dependencies installed in the workflow.
+Windows can build through a Linux checkout in WSL2, not the Windows build entry.
+For iOS, install the macOS dependencies above and full Xcode with the iPhoneOS
+and iPhoneSimulator SDKs. No MAUI workload is installed.
+
+```sh
+# On Linux x64, with the Android environment prepared:
+cmake -DTRIPLET=arm64-android-star -DJOBS=4 -P scripts/build-dotnet.cmake
+cmake -DTRIPLET=x64-android-star -DJOBS=4 -P scripts/build-dotnet.cmake
+# On macOS arm64:
+cmake -DTRIPLET=arm64-ios-star -DJOBS=2 -P scripts/build-dotnet.cmake
+cmake -DTRIPLET=arm64-ios-simulator-star -DJOBS=2 -P scripts/build-dotnet.cmake
+```
+
+`-DPRINT_ARGS=ON` works on any host without downloading or compiling. Builds use
+the same clean source pin and lock as desktop; run local targets sequentially.
+iOS explicitly enables the interpreter and disables JIT; the upstream pack
+build produces the Mach-O composite ReadyToRun image. This remains CoreCLR.
+
+Outputs under `out/dotnet/<triplet>/Release/` are
+`star-dotnet-<version>-<triplet>-release-runtime-pack.tar.gz` and `.sha256`.
+Each archive contains the unchanged `Microsoft.NETCore.App.Runtime.<rid>` NuGet
+package, CoreCLR hosting headers, licenses, source/build provenance and file hashes.
+Checks cover NuGet ID/version/RID, CoreLib, native CPU architecture, Apple device
+versus simulator platform, Android JIT, Apple R2R, and archive relocation.
+`provenance/build.json` records `runtimeTested: false`.
+
+These are runtime packs, not the desktop `hostfxr` SDK layout. They are not passed
+to `package-dotnet.cmake`, `validate-archive.cmake` or `StarDotNet::Hosting`.
+The desktop base profile is not applied: all upstream libraries and the Apple
+composite R2R image remain intact. Static-link archives from inner build outputs
+are not added to this package. Mobile embedding, application packaging/signing,
+and simulator/device execution are the next validation stage before release.
+
+Local orchestration/package-format tests (fixtures, not mobile execution):
+`python3 tests/dotnet/mobile.test.py`.
+Build commands follow the pinned upstream
+[Android](https://github.com/dotnet/runtime/blob/v11.0.0-rc.3.26522.148/docs/workflow/building/coreclr/android.md)
+and [iOS](https://github.com/dotnet/runtime/blob/v11.0.0-rc.3.26522.148/docs/workflow/building/coreclr/ios.md)
+instructions.
+
 ## GitHub Actions
 
 [CoreCLR SDK](../.github/workflows/dotnet.yml) combines building, packaging and
-validation for Windows x64 and macOS arm64. It runs on `main` pushes affecting the
+validation for Windows/macOS, plus four mobile runtime-pack builds. It runs on `main` pushes affecting the
 version pin, .NET scripts/tests or this workflow. Documentation-only changes do
 not trigger it. Manual **Run workflow** needs no run ID or operation selection;
 `force_rebuild` optionally bypasses the cache.
@@ -121,8 +179,11 @@ base packaging fails. Logs and validation receipts are uploaded even on failure.
 Only archives and checksums are cached, not the large source/build tree.
 Existing artifacts from the old manual workflow do not seed this cache.
 
-Jobs are limited to 180 minutes; cached-SDK validation and base packaging each
-have a 30-minute step limit. New pushes queue behind an active build for the
+Desktop jobs are limited to 180 minutes; cached-SDK validation and base packaging
+each have a 30-minute step limit. Mobile jobs are limited to **240 minutes** each
+and currently build from source every run, uploading
+`dotnet-<triplet>-Release-runtime-pack` and diagnostic logs. `force_rebuild` affects
+only desktop SDK caching. New pushes queue behind an active build for the
 same branch/target instead of canceling it. The workflow does not publish releases.
 For independently downloaded archives, use the validation commands below.
 The macOS job must pass on an actual arm64 runner before treating that package
