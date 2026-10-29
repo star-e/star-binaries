@@ -3,9 +3,9 @@ name: Check release scripts
 on:
   push:
     branches: [main]
-    paths: ['scripts/release/**', 'scripts/v8/validate*.cmake', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', '.github/workflows/release*.yml', '.github/workflows/validate-v8.yml']
+    paths: ['scripts/release/**', 'scripts/v8/validate*.cmake', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', 'dotnet-release.json', 'dotnet-version.cmake', '.github/workflows/release*.yml', '.github/workflows/validate-v8.yml']
   pull_request:
-    paths: ['scripts/release/**', 'scripts/v8/validate*.cmake', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', '.github/workflows/release*.yml', '.github/workflows/validate-v8.yml']
+    paths: ['scripts/release/**', 'scripts/v8/validate*.cmake', 'tests/release/**', 'scripts/ios-simulator-smoke.cmake', 'tests/ios/simulator-smoke*', 'v8-release.json', 'dotnet-release.json', 'dotnet-version.cmake', '.github/workflows/release*.yml', '.github/workflows/validate-v8.yml']
   workflow_dispatch:
 
 permissions:
@@ -18,4 +18,5 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: node --test tests/release/release.test.mjs
+      - run: node --test tests/release/dotnet.test.mjs
       - run: node --test tests/ios/simulator-smoke.test.mjs

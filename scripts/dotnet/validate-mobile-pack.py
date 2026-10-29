@@ -69,7 +69,13 @@ def validate_pack(path, rid, version):
         if rid.startswith("android-"):
             require(prefix + "native/libclrjit.so" in native, "Missing Android JIT")
         else:
-            require(any(name.endswith(".r2r.dylib") for name in native), "Missing Apple composite ReadyToRun image")
+            # Upstream composite images inherit the main assembly's metadata and
+            # can be packaged beside CoreLib, despite containing native Mach-O code.
+            directories = {PurePosixPath(prefix + "native"), PurePosixPath(prefix + "lib/net11.0")}
+            ready_to_run = [name for name in names if name.endswith(".r2r.dylib")
+                            and PurePosixPath(name).parent in directories]
+            require(ready_to_run, "Missing Apple composite ReadyToRun image in native/ or lib/net11.0/")
+            native.extend(name for name in ready_to_run if name not in native)
         for name in native:
             validate_native(pack.read(name), rid, name)
     return len(names)

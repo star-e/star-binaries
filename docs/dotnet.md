@@ -132,6 +132,8 @@ cmake -DTRIPLET=arm64-ios-simulator-star -DJOBS=2 -P scripts/build-dotnet.cmake
 the same clean source pin and lock as desktop; run local targets sequentially.
 iOS explicitly enables the interpreter and disables JIT; the upstream pack
 build produces the Mach-O composite ReadyToRun image. This remains CoreCLR.
+The composite `.r2r.dylib` may be under `runtimes/<rid>/lib/net11.0/` beside
+CoreLib or under `native/`; both locations receive native architecture/platform checks.
 
 Outputs under `out/dotnet/<triplet>/Release/` are
 `star-dotnet-<version>-<triplet>-release-runtime-pack.tar.gz` and `.sha256`.
@@ -145,8 +147,9 @@ These are runtime packs, not the desktop `hostfxr` SDK layout. They are not pass
 to `package-dotnet.cmake`, `validate-archive.cmake` or `StarDotNet::Hosting`.
 The desktop base profile is not applied: all upstream libraries and the Apple
 composite R2R image remain intact. Static-link archives from inner build outputs
-are not added to this package. Mobile embedding, application packaging/signing,
-and simulator/device execution are the next validation stage before release.
+are not added to this package. These packs can be published as experimental
+build-checked inputs. Mobile embedding, application packaging/signing, and
+simulator/device execution are subsequent consumer work.
 
 Local orchestration/package-format tests (fixtures, not mobile execution):
 `python3 tests/dotnet/mobile.test.py`.
@@ -188,6 +191,60 @@ same branch/target instead of canceling it. The workflow does not publish releas
 For independently downloaded archives, use the validation commands below.
 The macOS job must pass on an actual arm64 runner before treating that package
 as validated; Windows checks and `PRINT_ARGS` do not establish macOS support.
+
+## Release binaries
+
+The existing [Release all platforms](../.github/workflows/release.yml) workflow
+also distributes CoreCLR. It collects existing packages; it does not build .NET
+or require new mobile runtime tests during publication.
+[dotnet-release.json](../dotnet-release.json) defaults to:
+
+```json
+{ "schemaVersion": 1, "source": "workflow", "runId": "latest" }
+```
+
+This selects the newest completed successful **CoreCLR SDK** run on `main` whose
+source pin, workflow, build/package scripts, profiles and tests match the release
+commit, with all eight package artifacts still available. Unrelated repository
+changes do not force a rebuild. A partial, expired, failed or incompatible build
+cannot supply release inputs. Set `runId` to a positive numeric ID to fix a
+specific successful push/manual run in this repository.
+
+For later releases, reuse a published package set without depending on expiring
+Actions artifacts:
+
+```json
+{ "schemaVersion": 1, "source": "release", "tag": "v0.1.6" }
+```
+
+The example tag must be replaced with an actual previous release containing
+CoreCLR packages and `dotnet-provenance.json`, and must differ from the destination.
+Reuse preserves archive bytes and requires the same input fingerprint.
+
+Publication attaches Windows/macOS full and base SDKs, four mobile runtime packs,
+their SHA-256 sidecars, and `dotnet-provenance.json` with its sidecar. The manifest
+records the source workflow run/commit, upstream revision, runtime version,
+package hashes and per-package `runtimeTested`: desktop `true`, mobile `false`.
+The CoreCLR distribution is explicitly `experimental`; the repository release
+continues using the existing stable `vX.Y.Z` tag matching `vcpkg.json`.
+
+Wait for all six CoreCLR build targets to succeed, commit the publication changes,
+then publish the repository Release as described in the [release guide](v8-release.md).
+Release checks require the complete eight-package set. Existing identical assets
+are skipped; conflicting published bytes are never overwritten. For predictable
+retries, fix the numeric source run before tagging; automatic selection can change
+when another compatible build succeeds. Script fixes require a new source commit
+and release version, rather than moving a published tag.
+
+Optional preflight from a clean committed checkout, with GitHub CLI authenticated:
+
+```sh
+RELEASE_TAG=v0.1.6 GH_REPO=star-e/star-binaries node scripts/release/prepare-dotnet.mjs prepare out/dotnet-release
+RELEASE_TAG=v0.1.6 GH_REPO=star-e/star-binaries node scripts/release/prepare-dotnet.mjs verify out/dotnet-release
+```
+
+Use the intended destination tag and an empty output directory. These commands
+only download/check packages; they do not publish a Release.
 
 ## Package and consume
 

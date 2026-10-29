@@ -31,12 +31,14 @@ Build and distribute third-party C++ SDKs for star-platforms and star-engine.
 | [Build V8 13.6](.github/workflows/v8.yml) | Manually build V8 when build inputs change |
 | [Validate existing V8 SDKs](.github/workflows/validate-v8.yml) | Reuse SDKs and run current consumer checks without recompiling V8 |
 | [CoreCLR SDK](.github/workflows/dotnet.yml) | Validate desktop full/base SDKs; build and check Android/iOS runtime packs |
-| [Release all platforms](.github/workflows/release.yml) | Build ordinary dependencies, validate reused V8 SDKs, upload all assets |
+| [Release all platforms](.github/workflows/release.yml) | Build ordinary dependencies, validate reused V8 SDKs, collect CoreCLR packages, upload all assets |
 
 Ordinary platform workflows run on pushes to `main`, pull requests, manual
 dispatches and reusable release calls. CoreCLR runs on relevant `main` changes or
 manual dispatch, reusing matching full SDK caches. V8 builds are manual. Publishing a GitHub
 Release triggers distribution; pushing a tag or saving a draft alone does not.
+CoreCLR release inputs are selected by [dotnet-release.json](dotnet-release.json):
+by default the latest complete compatible **CoreCLR SDK** run on `main`.
 
 Consumers should pin the release tag, asset name and SHA-256. Published packages
 are corrected with a new version, rather than overwritten.

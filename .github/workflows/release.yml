@@ -39,6 +39,8 @@ jobs:
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Validate V8 release source configuration
         run: node scripts/release/prepare-v8.mjs check-config
+      - name: Validate CoreCLR release source configuration
+        run: node scripts/release/prepare-dotnet.mjs check-config
 
   desktop:
     needs: validate
@@ -68,8 +70,40 @@ jobs:
       source_ref: ${{ needs.validate.outputs.source_sha }}
       release_tag: ${{ github.event.release.tag_name }}
 
+  prepare-dotnet:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - name: Prepare existing CoreCLR packages
+        run: node scripts/release/prepare-dotnet.mjs prepare dotnet-release-assets
+      - name: Verify CoreCLR release set
+        run: node scripts/release/prepare-dotnet.mjs verify dotnet-release-assets
+      - name: Record CoreCLR coverage
+        run: |
+          echo '### CoreCLR (experimental)' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Windows/macOS full and base SDKs passed runtime checks in the source workflow.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Android/iOS runtime packs passed compilation and package checks; runtime execution is not yet validated.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Source run, revisions, versions and SHA-256 are recorded in dotnet-provenance.json.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-dotnet-release-packages
+          compression-level: 0
+          if-no-files-found: error
+          path: dotnet-release-assets/*
+
   verify-assets:
-    needs: [validate, desktop, android, ios, prepare-v8]
+    needs: [validate, desktop, android, ios, prepare-v8, prepare-dotnet]
     runs-on: ubuntu-24.04
     env:
       GH_REPO: ${{ github.repository }}
@@ -89,6 +123,12 @@ jobs:
           path: release-assets
       - name: Verify V8 release set
         run: node scripts/release/prepare-v8.mjs verify release-assets
+      - uses: actions/download-artifact@v7
+        with:
+          name: star-dotnet-release-packages
+          path: release-assets
+      - name: Verify CoreCLR release set
+        run: node scripts/release/prepare-dotnet.mjs verify release-assets
       - name: Validate release assets
         shell: bash
         working-directory: release-assets
@@ -106,7 +146,7 @@ jobs:
             test -s "$package"
             test -s "$package.sha256"
           done
-          for archive in *.zip; do
+          for archive in *.zip *.tar.gz; do
             test -s "$archive.sha256"
           done
           sha256sum --check --strict -- *.sha256

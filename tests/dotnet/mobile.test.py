@@ -43,9 +43,12 @@ def fixture(rid, version="test"):
         "data/RuntimeList.xml": "<FileList />",
     }
     libraries = (["libcoreclr.so", "libclrjit.so"] if rid.startswith("android-")
-                 else ["libcoreclr.dylib", "Microsoft.NETCore.App.Runtime.CoreCLR.r2r.dylib"])
+                 else ["libcoreclr.dylib"])
     for name in libraries:
         entries[prefix + "native/" + name] = native_image(rid)
+    if rid.startswith("ios"):
+        # The upstream composite inherits the main assembly's managed-asset metadata.
+        entries[prefix + "lib/net11.0/Microsoft.NETCore.App.Runtime.CoreCLR.r2r.dylib"] = native_image(rid)
     return entries
 
 
@@ -91,6 +94,48 @@ class MobileBuildTests(unittest.TestCase):
                 path = self.work / "test.nupkg"
                 write_pack(path, fixture(rid))
                 self.assertGreater(validator.validate_pack(path, rid, "test"), 0)
+
+    def test_apple_r2r_in_native_directory(self):
+        for rid in ("ios-arm64", "iossimulator-arm64"):
+            with self.subTest(rid=rid):
+                entries = fixture(rid)
+                name = next(name for name in entries if name.endswith(".r2r.dylib"))
+                entries[name.replace("lib/net11.0/", "native/")] = entries.pop(name)
+                path = self.work / "test.nupkg"
+                write_pack(path, entries)
+                self.assertGreater(validator.validate_pack(path, rid, "test"), 0)
+
+    def test_invalid_apple_r2r_in_managed_directory(self):
+        for rid, other in (("ios-arm64", "iossimulator-arm64"), ("iossimulator-arm64", "ios-arm64")):
+            wrong_cpu = bytearray(native_image(rid))
+            struct.pack_into("<I", wrong_cpu, 4, 0x1000007)  # x86_64
+            object_file = bytearray(native_image(rid))
+            struct.pack_into("<I", object_file, 12, 1)  # MH_OBJECT, not a linked dylib
+            for data, message in ((native_image(other), "Wrong Apple platform"),
+                                  (wrong_cpu, "Expected arm64"),
+                                  (object_file, "Expected Mach-O dylib"),
+                                  (native_image(rid)[:-1], "Truncated Mach-O"),
+                                  (b"MZfixture", "Expected Mach-O64")):
+                with self.subTest(rid=rid, failure=message):
+                    entries = fixture(rid)
+                    name = next(name for name in entries if name.endswith(".r2r.dylib"))
+                    entries[name] = data
+                    path = self.work / "test.nupkg"
+                    write_pack(path, entries)
+                    with self.assertRaisesRegex(ValueError, message):
+                        validator.validate_pack(path, rid, "test")
+
+    def test_apple_r2r_outside_runtime_directories(self):
+        rid = "ios-arm64"
+        for directory in ("tools/", f"runtimes/{rid}/lib/net10.0/", f"runtimes/{rid}/native/tools/"):
+            with self.subTest(directory=directory):
+                entries = fixture(rid)
+                name = next(name for name in entries if name.endswith(".r2r.dylib"))
+                entries[directory + name.rsplit("/", 1)[1]] = entries.pop(name)
+                path = self.work / "test.nupkg"
+                write_pack(path, entries)
+                with self.assertRaisesRegex(ValueError, "Missing Apple composite"):
+                    validator.validate_pack(path, rid, "test")
 
     def test_wrong_identity(self):
         path = self.work / "test.nupkg"

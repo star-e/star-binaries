@@ -1,21 +1,28 @@
 # Release guide and V8 reuse
 
-Ordinary dependencies and six V8 SDKs share one `vX.Y.Z` release. Publication
-builds ordinary dependencies and validates existing V8 SDKs; it never recompiles
-V8. For building or consuming packages, see [dependency SDKs](dependencies.md)
-and [V8 SDKs](v8.md).
+Ordinary dependencies, six V8 SDKs and eight CoreCLR packages share one `vX.Y.Z`
+release. Publication builds ordinary dependencies, validates existing V8 SDKs
+and collects existing CoreCLR packages. V8 and .NET are not recompiled.
+See [dependency SDKs](dependencies.md), [V8 SDKs](v8.md) and
+[CoreCLR release inputs](dotnet.md#release-binaries).
 
 ## Publish a release
 
 1. Set `version-string` in [vcpkg.json](../vcpkg.json) and select the V8 source
-   in [v8-release.json](../v8-release.json), then commit and push.
+   in [v8-release.json](../v8-release.json). Check
+   [dotnet-release.json](../dotnet-release.json): its default selects the latest
+   complete compatible CoreCLR build on `main`; a numeric run ID fixes the source
+   for predictable retries. All six CoreCLR targets must have succeeded.
+   Then commit and push.
 2. Optionally run **Validate existing V8 SDKs** on that branch. Set
    **Destination version** to the intended `vX.Y.Z`. This only prepares validation
    records; it neither creates a tag nor publishes a release.
 3. Open **Releases > Draft a new release**. Select or create the matching
    `vX.Y.Z` tag on the intended commit, enter release notes, and **Publish release**.
 4. Check **Release all platforms**. Ordinary platform builds, V8 consumer
-   validation and package verification must pass before assets are uploaded.
+   validation, CoreCLR package collection and package verification must pass
+   before assets are uploaded. CoreCLR mobile runtime execution is not a gate;
+   its published provenance explicitly records `runtimeTested: false`.
 
 The [release workflow](../.github/workflows/release.yml) triggers only on
 `release: published`. A draft or tag push alone does not trigger it.
@@ -146,7 +153,8 @@ validation. CI runs `validate-v8.mjs` on each host, collects receipts, then uses
 `prepare-v8.mjs finalize <directory> <receipts>` and `verify <directory>`.
 
 The final release requires ordinary SDKs for all targets, desktop Release/Debug
-runtime packages, six V8 SDKs, provenance and SHA-256 sidecars. Available desktop
+runtime packages, six V8 SDKs, Windows/macOS CoreCLR full/base SDKs, four mobile
+CoreCLR runtime packs, provenance and SHA-256 sidecars. Available desktop
 symbols are included. Consumers should lock tag, filename and checksum.
 
 ## Release memo: 2026-10-09
