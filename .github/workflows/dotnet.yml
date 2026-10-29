@@ -180,7 +180,9 @@ jobs:
           java-version: '23'
       - name: Set up Android SDK
         if: runner.os == 'Linux'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
       - name: Install pinned Android NDK
         if: runner.os == 'Linux'
         run: |
