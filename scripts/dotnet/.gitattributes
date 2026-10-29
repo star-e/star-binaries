@@ -1,0 +1,2 @@
+# Scope shell checkout rules to .NET so they do not invalidate V8 build inputs.
+*.sh text eol=lf

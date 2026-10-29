@@ -140,6 +140,15 @@ test('fingerprint ignores ordinary dependency updates but includes V8 inputs', (
   assert.throws(() => fingerprint(tree.filter(entry => entry.path !== 'v8-version.cmake')), /Missing/);
 });
 
+test('.NET shell checkout rules do not change V8 build or validation fingerprints', () => {
+  const changed = tree.map(entry => entry.path === 'scripts/dotnet/.gitattributes'
+    ? { ...entry, sha: 'a'.repeat(40) } : entry);
+  assert(tree.some(entry => entry.path === 'scripts/dotnet/.gitattributes'));
+  for (const kind of ['build', 'validation']) {
+    assert.equal(fingerprint(changed, kind), fingerprint(tree, kind));
+  }
+});
+
 test('validation changes do not rebuild V8; build scripts, packaging and patches still do', () => {
   for (const name of ['scripts/ios-simulator-smoke.cmake', 'scripts/v8/validate.cmake',
     'scripts/v8/validate-ios-simulator.cmake', 'scripts/v8/validate-sdk.cmake',
@@ -150,7 +159,7 @@ test('validation changes do not rebuild V8; build scripts, packaging and patches
     assert.equal(fingerprint(changed), fingerprint(tree), name);
     assert.notEqual(fingerprint(changed, 'validation'), fingerprint(tree, 'validation'), name);
   }
-  for (const name of ['v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/args.cmake',
+  for (const name of ['.gitattributes', 'v8-version.cmake', 'scripts/build-v8.cmake', 'scripts/v8/args.cmake',
     'scripts/v8/package-libraries.cmake', 'scripts/v8/merge-sdk.cmake', '.github/workflows/v8.yml',
     tree.find(entry => entry.path.startsWith('patches/v8/') && entry.type === 'blob').path]) {
     const changed = structuredClone(tree);
