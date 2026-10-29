@@ -160,10 +160,9 @@ instructions.
 
 ## GitHub Actions
 
-[CoreCLR SDK](../.github/workflows/dotnet.yml) combines building, packaging and
-validation for Windows/macOS, plus four mobile runtime-pack builds. It runs on `main` pushes affecting the
-version pin, .NET scripts/tests or this workflow. Documentation-only changes do
-not trigger it. Manual **Run workflow** needs no run ID or operation selection;
+[Build .NET](../.github/workflows/dotnet.yml) combines building, packaging and
+validation for Windows/macOS, plus four mobile runtime-pack builds. Start it with
+**Run workflow**; pushes and pull requests do not trigger builds.
 `force_rebuild` optionally bypasses the cache.
 
 1. Restore a full SDK archive keyed by target, the version pin and full-build
@@ -186,7 +185,7 @@ Desktop jobs are limited to 180 minutes; cached-SDK validation and base packagin
 each have a 30-minute step limit. Mobile jobs are limited to **240 minutes** each
 and currently build from source every run, uploading
 `dotnet-<triplet>-Release-runtime-pack` and diagnostic logs. `force_rebuild` affects
-only desktop SDK caching. New pushes queue behind an active build for the
+only desktop SDK caching. Manual runs queue behind an active build for the
 same branch/target instead of canceling it. The workflow does not publish releases.
 For independently downloaded archives, use the validation commands below.
 The macOS job must pass on an actual arm64 runner before treating that package
@@ -194,57 +193,19 @@ as validated; Windows checks and `PRINT_ARGS` do not establish macOS support.
 
 ## Release binaries
 
-The existing [Release all platforms](../.github/workflows/release.yml) workflow
-also distributes CoreCLR. It collects existing packages; it does not build .NET
-or require new mobile runtime tests during publication.
-[dotnet-release.json](../dotnet-release.json) defaults to:
+[Release](../.github/workflows/release.yml) collects the existing eight packages
+without rebuilding CoreCLR. Configure `dotnet` in
+[release-inputs.json](../release-inputs.json): `workflow` with `runId: "latest"`
+selects a complete compatible Build .NET run on `main`; a numeric run ID fixes
+one run, and `release` with a previous tag reuses published archives.
 
-```json
-{ "schemaVersion": 1, "source": "workflow", "runId": "latest" }
-```
-
-This selects the newest completed successful **CoreCLR SDK** run on `main` whose
-source pin, workflow, build/package scripts, profiles and tests match the release
-commit, with all eight package artifacts still available. Unrelated repository
-changes do not force a rebuild. A partial, expired, failed or incompatible build
-cannot supply release inputs. Set `runId` to a positive numeric ID to fix a
-specific successful push/manual run in this repository.
-
-For later releases, reuse a published package set without depending on expiring
-Actions artifacts:
-
-```json
-{ "schemaVersion": 1, "source": "release", "tag": "v0.1.6" }
-```
-
-The example tag must be replaced with an actual previous release containing
-CoreCLR packages and `dotnet-provenance.json`, and must differ from the destination.
-Reuse preserves archive bytes and requires the same input fingerprint.
-
-Publication attaches Windows/macOS full and base SDKs, four mobile runtime packs,
-their SHA-256 sidecars, and `dotnet-provenance.json` with its sidecar. The manifest
-records the source workflow run/commit, upstream revision, runtime version,
-package hashes and per-package `runtimeTested`: desktop `true`, mobile `false`.
-The CoreCLR distribution is explicitly `experimental`; the repository release
-continues using the existing stable `vX.Y.Z` tag matching `vcpkg.json`.
-
-Wait for all six CoreCLR build targets to succeed, commit the publication changes,
-then publish the repository Release as described in the [release guide](v8-release.md).
-Release checks require the complete eight-package set. Existing identical assets
-are skipped; conflicting published bytes are never overwritten. For predictable
-retries, fix the numeric source run before tagging; automatic selection can change
-when another compatible build succeeds. Script fixes require a new source commit
-and release version, rather than moving a published tag.
-
-Optional preflight from a clean committed checkout, with GitHub CLI authenticated:
-
-```sh
-RELEASE_TAG=v0.1.6 GH_REPO=star-e/star-binaries node scripts/release/prepare-dotnet.mjs prepare out/dotnet-release
-RELEASE_TAG=v0.1.6 GH_REPO=star-e/star-binaries node scripts/release/prepare-dotnet.mjs verify out/dotnet-release
-```
-
-Use the intended destination tag and an empty output directory. These commands
-only download/check packages; they do not publish a Release.
+The release includes Windows/macOS full and base SDKs, four mobile runtime packs,
+SHA-256 sidecars and `dotnet-provenance.json`. It records exact source run/commit,
+upstream revision and per-package `runtimeTested`: desktop `true`, mobile `false`.
+The distribution remains experimental. See the [release guide](release.md) for
+source selection, retries and publication. Workflow changes affect the source
+fingerprint: run Build .NET once after adopting the manual-only workflow. Existing
+matching desktop SDK caches can still avoid source compilation.
 
 ## Package and consume
 

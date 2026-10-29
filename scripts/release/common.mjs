@@ -34,16 +34,17 @@ export async function hashFile(file) {
 }
 
 export function validateSource(config, releaseTag) {
-  assert.equal(config.schemaVersion, 1, 'Unsupported V8 release config schema');
+  assert.equal(config.schemaVersion, 1, 'Unsupported release source schema');
   assert(stableTag.test(releaseTag), 'Expected a stable destination release tag');
   if (config.source === 'workflow') {
-    assert(Number.isSafeInteger(config.runId) && config.runId > 0, 'Specify a positive Build V8 runId');
+    assert(config.runId === 'latest' || (Number.isSafeInteger(config.runId) && config.runId > 0),
+      'Specify latest or a positive build runId');
     assert.deepEqual(Object.keys(config).sort(), ['runId', 'schemaVersion', 'source']);
   } else if (config.source === 'release') {
     assert(stableTag.test(config.tag) && config.tag !== releaseTag, 'Specify a different source release tag');
     assert.deepEqual(Object.keys(config).sort(), ['schemaVersion', 'source', 'tag']);
   } else {
-    throw new Error('Configure v8-release.json: source must be workflow (runId) or release (tag). V8 is never rebuilt during publication.');
+    throw new Error('Configure release-inputs.json: source must be workflow (runId) or release (tag). Publication never rebuilds packages.');
   }
   return config;
 }

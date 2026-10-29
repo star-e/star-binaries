@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { GitHub, archiveName, assertNames, extractSelected, fingerprint, hashFile, hashPattern,
   localFingerprint, manifestName, readJson, run, shaPattern, stableTag, triplets,
   v8Version, validateSource, validateV8Archive, verifyChecksum, withTemp } from './common.mjs';
+import { oneAsset, readSource, selectBuildRun } from './sources.mjs';
 
 export function validateRun(runInfo, runId, repository) {
   assert.equal(runInfo.id, runId, 'Wrong workflow run');
@@ -60,10 +61,10 @@ async function writeManifest(directory, manifest) {
   writeFileSync(`${metadata}.sha256`, `${await hashFile(metadata)}  ${manifestName}\n`);
 }
 
-function oneAsset(assets, name) {
-  const matches = assets.filter(asset => asset.name === name);
-  assert.equal(matches.length, 1, `Missing or ambiguous asset: ${name}`);
-  return matches[0];
+export function selectV8Run(client, config, expectedFingerprint) {
+  return selectBuildRun({ client, config, expectedFingerprint, workflow: 'v8.yml', fingerprint,
+    artifacts: triplets.map(triplet => `v8-${triplet}-sdk`),
+    validate: info => validateRun(info, info.id, client.repository) });
 }
 
 export async function prepareV8({ root, output, tag, config, client }) {
@@ -76,16 +77,7 @@ export async function prepareV8({ root, output, tag, config, client }) {
   return withTemp(async work => {
     let origin, previous, sourceAssets;
     if (config.source === 'workflow') {
-      origin = validateRun(client.api(`actions/runs/${config.runId}`), config.runId, client.repository);
-      assert.equal(fingerprint(client.tree(origin.headSha)), expectedFingerprint,
-        'V8 inputs differ from the selected build; select a matching Build V8 run');
-      sourceAssets = client.pages(`actions/runs/${config.runId}/artifacts`, 'artifacts');
-      for (const triplet of triplets) {
-        const artifact = oneAsset(sourceAssets, `v8-${triplet}-sdk`);
-        assert(!artifact.expired, `Expired artifact: ${artifact.name}; use an existing release or rebuild V8`);
-        assert.equal(artifact.workflow_run?.head_sha, origin.headSha, 'Artifact source mismatch');
-        assert(Number.isSafeInteger(artifact.id) && artifact.id > 0, 'Invalid artifact ID');
-      }
+      ({ origin, assets: sourceAssets } = selectV8Run(client, config, expectedFingerprint));
     } else {
       const release = client.api(`releases/tags/${config.tag}`);
       assert.equal(release.tag_name, config.tag);
@@ -136,7 +128,7 @@ export async function prepareV8({ root, output, tag, config, client }) {
       }
     }
     const manifest = { schemaVersion: 2, repository: client.repository, releaseTag: tag,
-      releaseCommit: run('git', ['rev-parse', 'HEAD'], root).trim(), source: config,
+      releaseCommit: run('git', ['rev-parse', 'HEAD'], root).trim(), source: config.source === 'workflow' ? { ...config, runId: origin.runId } : config,
       origin, buildFingerprint: expectedFingerprint, validationFingerprint,
       v8Version: version.version, assets, validations: [] };
     await writeManifest(output, manifest);
@@ -183,9 +175,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const root = process.cwd();
     const tag = process.env.RELEASE_TAG;
     const repository = process.env.GH_REPO || process.env.GITHUB_REPOSITORY;
-    if (mode === 'check-config') validateSource(readJson(path.join(root, 'v8-release.json')), tag);
+    if (mode === 'check-config') validateSource(readSource(root, 'v8', tag), tag);
     else if (mode === 'prepare' && directory) await prepareV8({ root, output: path.resolve(directory), tag,
-      config: readJson(path.join(root, 'v8-release.json')), client: new GitHub(repository) });
+      config: readSource(root, 'v8', tag), client: new GitHub(repository) });
     else if (mode === 'verify' && directory) await verifyV8Set({ root, directory: path.resolve(directory), tag, repository });
     else if (mode === 'finalize' && directory && receipts) await finalizeV8({ root,
       directory: path.resolve(directory), tag, repository, receipts: path.resolve(receipts) });

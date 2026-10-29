@@ -1,0 +1,205 @@
+name: Build SDK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/release-checks.yml
+
+  desktop:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            triplet: x64-windows-star
+          - os: macos-15
+            triplet: arm64-osx-star
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Build and test Release and Debug packages
+        run: cmake -DTRIPLET=${{ matrix.triplet }} -P scripts/build.cmake
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-binaries-${{ matrix.triplet }}-packages
+          if-no-files-found: error
+          path: |
+            out/${{ matrix.triplet }}/*.zip
+            out/${{ matrix.triplet }}/*.sha256
+
+  android:
+    needs: checks
+    name: ${{ matrix.triplet }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        triplet: [arm64-android-star, x64-android-star]
+    env:
+      BUILD_TRIPLET: ${{ matrix.triplet }}
+      NDK_VERSION: 30.0.16248370
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Set up Java for Android SDK tools
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Install Android toolchain
+        run: |
+          sdkmanager "ndk;$NDK_VERSION" "platform-tools"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          cmake --version
+          ninja --version
+          cat "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
+      - name: Check SDK lookup under cross-compilation root rules
+        run: cmake -DTEST_ROOT="$RUNNER_TEMP/android-lookup" -P tests/android/package_lookup.cmake
+      - name: Build arm64 SDK and validate Release and Debug consumers
+        if: matrix.triplet == 'arm64-android-star'
+        run: cmake -DTRIPLET="$BUILD_TRIPLET" -P scripts/build-android.cmake
+      - name: Enable KVM
+        if: matrix.triplet == 'x64-android-star'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build x64 SDK and run Release and Debug consumers
+        if: matrix.triplet == 'x64-android-star'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: cmake -DTRIPLET="$BUILD_TRIPLET" -DANDROID_SERIAL=emulator-5554 -P scripts/build-android.cmake
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-binaries-${{ matrix.triplet }}-packages
+          if-no-files-found: error
+          path: |
+            out/${{ matrix.triplet }}/*.zip
+            out/${{ matrix.triplet }}/*.sha256
+      - name: Upload Android logs
+        if: always() && matrix.triplet == 'x64-android-star'
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-emulator-logs
+          if-no-files-found: warn
+          path: out/${{ matrix.triplet }}/*-android.log
+
+  ios:
+    needs: checks
+    name: ${{ matrix.triplet }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        triplet: [arm64-ios-star, arm64-ios-simulator-star]
+    env:
+      BUILD_TRIPLET: ${{ matrix.triplet }}
+      SIMULATOR_UDID: ''
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Record source and trigger
+        shell: bash
+        env:
+          SOURCE_REF: ${{ github.sha }}
+        run: |
+          echo "event=$GITHUB_EVENT_NAME"
+          echo "trigger_ref=$GITHUB_REF"
+          echo "requested_source=$SOURCE_REF"
+          git log -1 --format='checked_out=%H %s'
+      - name: Inspect Apple toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          cmake --version
+      - name: Boot iPhone simulator
+        if: matrix.triplet == 'arm64-ios-simulator-star'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = & xcrun simctl list devices available --json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list simulators' }
+          $devices = ($json -join "`n" | ConvertFrom-Json).devices
+          $device = $devices.PSObject.Properties |
+            Where-Object { $_.Name -like 'com.apple.CoreSimulator.SimRuntime.iOS-*' } |
+            ForEach-Object { $_.Value } |
+            Where-Object { $_.isAvailable -and $_.name -like 'iPhone*' } |
+            Select-Object -First 1
+          if (-not $device) { throw 'No available iPhone simulator in the selected Xcode image' }
+          "SIMULATOR_UDID=$($device.udid)" >> $env:GITHUB_ENV
+          Write-Host "Using $($device.name): $($device.udid)"
+          if ($device.state -ne 'Booted') {
+            & xcrun simctl boot $device.udid
+            if ($LASTEXITCODE -ne 0) { throw 'Could not boot simulator' }
+          }
+          & xcrun simctl bootstatus $device.udid -b
+          if ($LASTEXITCODE -ne 0) { throw 'Simulator failed to finish booting' }
+      - name: Build SDK and validate Release and Debug consumers
+        shell: pwsh
+        run: |
+          $arguments = @("-DTRIPLET=$env:BUILD_TRIPLET")
+          if ($env:SIMULATOR_UDID) {
+            $arguments += "-DSIMULATOR_UDID=$env:SIMULATOR_UDID"
+          }
+          & cmake @arguments -P scripts/build-ios.cmake
+          if ($LASTEXITCODE -ne 0) { throw 'iOS build or consumer validation failed' }
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-binaries-${{ matrix.triplet }}-packages
+          if-no-files-found: error
+          path: |
+            out/${{ matrix.triplet }}/*.zip
+            out/${{ matrix.triplet }}/*.sha256
+      - name: Upload simulator logs
+        if: always() && matrix.triplet == 'arm64-ios-simulator-star'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-simulator-logs
+          if-no-files-found: warn
+          path: out/${{ matrix.triplet }}/*-simulator*.log*
+      - name: Shut down simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        shell: pwsh
+        run: ./scripts/shutdown-ios-simulator.ps1 -Udid $env:SIMULATOR_UDID
+
+  package:
+    needs: [desktop, android, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: star-binaries-*-packages
+          merge-multiple: true
+          path: sdk-packages
+      - name: Verify all platforms and record build provenance
+        run: node scripts/release/prepare-sdk.mjs record sdk-packages
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sdk-packages
+          compression-level: 0
+          if-no-files-found: error
+          path: sdk-packages/*

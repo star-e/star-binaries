@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHub, archiveName, extractSelected, fingerprint, hashFile, linkage, localFingerprint,
   manifestName, readJson, run, triplets, v8Version, validateSource, validateV8Archive, verifyChecksum, withTemp } from '../../scripts/release/common.mjs';
-import { finalizeV8, prepareV8, validateRun, validateReceipts, validationMode, verifyV8Set } from '../../scripts/release/prepare-v8.mjs';
+import { finalizeV8, prepareV8, selectV8Run, validateRun, validateReceipts, validationMode, verifyV8Set } from '../../scripts/release/prepare-v8.mjs';
 import { validateSDK } from '../../scripts/release/validate-v8.mjs';
 import { uploadAssets } from '../../scripts/release/upload-assets.mjs';
 
@@ -123,7 +123,7 @@ async function fixture(work) {
 }
 
 test('explicit source required; no self-reuse or ambiguous config', () => {
-  assert.throws(() => validateSource({ schemaVersion: 1, source: null }, 'v0.1.4'), /Configure v8-release/);
+  assert.throws(() => validateSource({ schemaVersion: 1, source: null }, 'v0.1.4'), /Configure release-inputs/);
   assert.throws(() => validateSource({ ...config, runId: 0 }, 'v0.1.4'), /positive/);
   assert.throws(() => validateSource({ schemaVersion: 1, source: 'release', tag: 'v0.1.4' }, 'v0.1.4'), /different/);
   assert.throws(() => validateSource({ ...config, tag: 'v0.1.3' }, 'v0.1.4'));
@@ -161,10 +161,29 @@ test('validation changes do not rebuild V8; build scripts, packaging and patches
 
 test('reject failed, incomplete, fork, and wrong workflow runs', () => {
   for (const change of [{ conclusion: 'failure' }, { status: 'in_progress' }, { event: 'pull_request' },
-    { path: '.github/workflows/build.yml' }, { head_repository: { full_name: 'fork/repo' } }]) {
+    { path: '.github/workflows/sdk.yml' }, { head_repository: { full_name: 'fork/repo' } }]) {
     assert.throws(() => validateRun({ ...runInfo, ...change }, 123, repository));
   }
   assert.deepEqual(validateRun(runInfo, 123, repository), { runId: 123, headSha: sourceSha });
+});
+
+test('V8 latest selects a complete matching manual build', () => {
+  const automatic = { ...config, runId: 'latest' };
+  validateSource(automatic, 'v0.1.6');
+  const artifacts = triplets.map((triplet, index) => ({ id: index + 1,
+    name: `v8-${triplet}-sdk`, workflow_run: { head_sha: sourceSha } }));
+  const client = { repository, tree: () => tree,
+    pages(route, key) {
+      if (key === 'workflow_runs') {
+        assert.equal(route, 'actions/workflows/v8.yml/runs?status=success&branch=main');
+        return [runInfo];
+      }
+      assert.equal(route, 'actions/runs/123/artifacts');
+      return artifacts;
+    } };
+  assert.deepEqual(selectV8Run(client, automatic, fingerprint(tree)).origin, { runId: 123, headSha: sourceSha });
+  artifacts.pop();
+  assert.throws(() => selectV8Run(client, automatic, fingerprint(tree)), /No complete matching/);
 });
 
 test('prepare all six workflow SDKs, verify, then reuse release bytes and origin', async () => withTemp(async work => {

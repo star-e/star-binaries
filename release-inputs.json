@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "sdk": { "source": "workflow", "runId": "latest" },
+  "v8": { "source": "release", "tag": "v0.1.4" },
+  "dotnet": { "source": "workflow", "runId": "latest" }
+}

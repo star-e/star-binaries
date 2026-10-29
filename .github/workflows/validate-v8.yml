@@ -1,12 +1,6 @@
 name: Validate existing V8 SDKs
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Destination version (for provenance only; does not publish)
-        required: true
-        type: string
   workflow_call:
     inputs:
       source_ref:

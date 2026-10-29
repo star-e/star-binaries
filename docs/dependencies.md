@@ -84,7 +84,7 @@ xcrun simctl shutdown <uuid>
 
 The ordinary iOS script expects a booted simulator; its CI workflow starts one
 before building. No signing credentials are needed for these checks.
-See [simulator troubleshooting](v8-release.md#failures-and-retries) for timeouts
+See [simulator troubleshooting](v8.md#simulator-troubleshooting) for timeouts
 and logs.
 
 ## Package layout
@@ -103,7 +103,7 @@ configuration into `bin/` and `lib/`. Symbol packaging does not generate dSYMs
 or strip embedded debug information. Packages exclude vcpkg itself and host tools.
 
 Checksums and CI package artifacts are emitted after consumer validation succeeds.
-For distribution, follow the [release guide](v8-release.md).
+For distribution, follow the [release guide](release.md).
 
 ## Consume an SDK
 

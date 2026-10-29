@@ -4,7 +4,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkS
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHub, assertNames, extractSelected, hashFile, hashPattern, readJson, run,
-  shaPattern, stableTag, triplets, verifyChecksum, withTemp } from './common.mjs';
+  shaPattern, stableTag, triplets, validateSource, verifyChecksum, withTemp } from './common.mjs';
+import { oneAsset, readSource, selectBuildRun, validateBuildRun } from './sources.mjs';
 
 export const dotnetManifestName = 'dotnet-provenance.json';
 const isInput = name => ['.gitattributes', 'dotnet-version.cmake', 'scripts/build-dotnet.cmake',
@@ -66,67 +67,17 @@ export function dotnetPackages(version) {
   });
 }
 
-export function validateDotnetSource(config, tag) {
-  assert(stableTag.test(tag), 'Expected a stable destination release tag');
-  assert.equal(config.schemaVersion, 1, 'Unsupported CoreCLR release config');
-  if (config.source === 'workflow') {
-    assert(config.runId === 'latest' || (Number.isSafeInteger(config.runId) && config.runId > 0),
-      'Use latest or a positive CoreCLR SDK runId');
-    assert.deepEqual(Object.keys(config).sort(), ['runId', 'schemaVersion', 'source']);
-  } else {
-    assert.equal(config.source, 'release', 'CoreCLR source must be workflow or release');
-    assert(stableTag.test(config.tag) && config.tag !== tag, 'Use a different published source release tag');
-    assert.deepEqual(Object.keys(config).sort(), ['schemaVersion', 'source', 'tag']);
-  }
-}
+export const validateDotnetSource = validateSource;
 
 export function validateDotnetRun(info, repository) {
-  assert(Number.isSafeInteger(info.id) && info.id > 0, 'Invalid CoreCLR run ID');
-  assert.equal(info.path, '.github/workflows/dotnet.yml', 'Source is not CoreCLR SDK');
-  assert(['push', 'workflow_dispatch'].includes(info.event), 'Unsupported CoreCLR build event');
-  assert.equal(info.status, 'completed', 'CoreCLR build has not completed');
-  assert.equal(info.conclusion, 'success', 'All CoreCLR build and validation jobs must succeed');
-  assert.equal(info.head_repository?.full_name?.toLowerCase(), repository.toLowerCase(), 'Fork artifacts are not release inputs');
-  assert(shaPattern.test(info.head_sha), 'Missing CoreCLR build commit');
-  return { runId: info.id, headSha: info.head_sha };
-}
-
-function oneAsset(assets, name) {
-  const matches = assets.filter(asset => asset.name === name);
-  assert.equal(matches.length, 1, `Missing or ambiguous CoreCLR asset: ${name}`);
-  return matches[0];
-}
-
-function requireArtifacts(assets, packages, origin) {
-  for (const item of packages) {
-    const artifact = oneAsset(assets, item.artifact);
-    assert(!artifact.expired, `Expired CoreCLR artifact: ${artifact.name}; select a published release or rebuild`);
-    assert.equal(artifact.workflow_run?.head_sha, origin.headSha, 'CoreCLR artifact source mismatch');
-    assert(Number.isSafeInteger(artifact.id) && artifact.id > 0, 'Invalid artifact ID');
-  }
+  // Previously published push builds remain valid sources; new builds are manual.
+  return validateBuildRun(info, repository, 'dotnet.yml', ['push', 'workflow_dispatch']);
 }
 
 export function selectDotnetRun(client, config, expectedFingerprint, packages) {
-  const automatic = config.runId === 'latest';
-  const candidates = automatic
-    ? client.pages('actions/workflows/dotnet.yml/runs?status=success&branch=main', 'workflow_runs')
-      .sort((a, b) => b.run_number - a.run_number || b.id - a.id)
-    : [client.api(`actions/runs/${config.runId}`)];
-  for (const info of candidates) {
-    try {
-      const origin = validateDotnetRun(info, client.repository);
-      if (!automatic) assert.equal(origin.runId, config.runId, 'Wrong workflow run');
-      assert.equal(dotnetFingerprint(client.tree(origin.headSha)), expectedFingerprint,
-        'CoreCLR build/package/test inputs differ from the release commit');
-      const assets = client.pages(`actions/runs/${origin.runId}/artifacts`, 'artifacts');
-      requireArtifacts(assets, packages, origin);
-      return { origin, assets };
-    } catch (error) {
-      if (!automatic) throw error;
-      console.log(`Skipping CoreCLR run ${info.id}: ${error.message}`);
-    }
-  }
-  throw new Error('No complete matching CoreCLR SDK run on main. Finish all six targets, or select a run/release in dotnet-release.json.');
+  return selectBuildRun({ client, config, expectedFingerprint, workflow: 'dotnet.yml',
+    fingerprint: dotnetFingerprint, artifacts: packages.map(item => item.artifact),
+    validate: info => validateDotnetRun(info, client.repository) });
 }
 
 export async function validateDotnetArchive(root, file, item, version, work) {
@@ -239,7 +190,7 @@ export async function prepareDotnet({ root, output, tag, config, client }) {
       for (const name of [item.name, `${item.name}.sha256`]) copyFileSync(path.join(input, name), path.join(output, name));
     }
     const manifest = { schemaVersion: 1, repository: client.repository, releaseTag: tag,
-      releaseCommit: run('git', ['rev-parse', 'HEAD'], root).trim(), source: config, origin,
+      releaseCommit: run('git', ['rev-parse', 'HEAD'], root).trim(), source: config.source === 'workflow' ? { ...config, runId: origin.runId } : config, origin,
       inputFingerprint: expectedFingerprint, dotnet: version, status: 'experimental', assets };
     const metadata = path.join(output, dotnetManifestName);
     writeFileSync(metadata, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -274,9 +225,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const [mode, directory] = process.argv.slice(2);
     const root = process.cwd(), tag = process.env.RELEASE_TAG;
     const repository = process.env.GH_REPO || process.env.GITHUB_REPOSITORY;
-    if (mode === 'check-config') validateDotnetSource(readJson(path.join(root, 'dotnet-release.json')), tag);
+    if (mode === 'check-config') validateDotnetSource(readSource(root, 'dotnet', tag), tag);
     else if (mode === 'prepare' && directory) await prepareDotnet({ root, output: path.resolve(directory), tag,
-      config: readJson(path.join(root, 'dotnet-release.json')), client: new GitHub(repository) });
+      config: readSource(root, 'dotnet', tag), client: new GitHub(repository) });
     else if (mode === 'verify' && directory) await verifyDotnetSet({ root, directory: path.resolve(directory), tag, repository });
     else throw new Error('Usage: node scripts/release/prepare-dotnet.mjs check-config | prepare <directory> | verify <directory>');
   } catch (error) { console.error(error.message); process.exitCode = 1; }

@@ -3,21 +3,28 @@ import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHub, hashFile, manifestName, stableTag, verifyChecksum, withTemp } from './common.mjs';
-import { verifyV8Set } from './prepare-v8.mjs';
-import { dotnetManifestName, verifyDotnetSet } from './prepare-dotnet.mjs';
+import { dotnetManifestName } from './prepare-dotnet.mjs';
+import { sdkManifestName } from './prepare-sdk.mjs';
+import { releaseManifestName, verifyReleaseSet } from './release-set.mjs';
+
+export function publishedRelease(client, tag) {
+  assert(stableTag.test(tag), 'Invalid release tag');
+  const release = client.api(`releases/tags/${tag}`);
+  assert.equal(release.tag_name, tag);
+  assert(!release.draft && !release.prerelease, 'Destination must be a published stable release');
+  return release;
+}
 
 export async function uploadAssets({ client, directory, tag }) {
   assert(stableTag.test(tag), 'Invalid release tag');
   const files = readdirSync(directory).sort();
   assert(files.every(name => /^[A-Za-z0-9_.-]+$/.test(name)), 'Invalid release asset filename');
   const payloads = files.filter(name => name.endsWith('.zip') || name.endsWith('.tar.gz') ||
-    name === manifestName || name === dotnetManifestName);
+    [manifestName, dotnetManifestName, sdkManifestName, releaseManifestName].includes(name));
   assert(payloads.length > 0, 'No release assets');
   assert.deepEqual(files, payloads.flatMap(name => [name, `${name}.sha256`]).sort(), 'Unexpected or missing release files');
   for (const name of payloads) await verifyChecksum(path.join(directory, name));
-  const release = client.api(`releases/tags/${tag}`);
-  assert.equal(release.tag_name, tag);
-  assert(!release.draft && !release.prerelease, 'Destination must be a published stable release');
+  const release = publishedRelease(client, tag);
   const remote = client.pages(`releases/${release.id}/assets`);
   const pending = [];
   await withTemp(async work => {
@@ -44,11 +51,13 @@ export async function uploadAssets({ client, directory, tag }) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     assert(process.argv[2], 'Pass a release asset directory');
-    const directory = path.resolve(process.argv[2]);
     const tag = process.env.RELEASE_TAG;
     const client = new GitHub(process.env.GH_REPO || process.env.GITHUB_REPOSITORY);
-    await verifyV8Set({ root: process.cwd(), directory, tag, repository: client.repository });
-    await verifyDotnetSet({ root: process.cwd(), directory, tag, repository: client.repository });
-    await uploadAssets({ client, directory, tag });
+    if (process.argv[2] === 'check-release') publishedRelease(client, tag);
+    else {
+      const directory = path.resolve(process.argv[2]);
+      await verifyReleaseSet({ root: process.cwd(), directory, tag, repository: client.repository });
+      await uploadAssets({ client, directory, tag });
+    }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -1,6 +1,12 @@
-name: Release all platforms
+name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published release tag to populate or retry (vX.Y.Z)
+        required: true
+        type: string
   release:
     types: [published]
 
@@ -8,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -17,11 +23,12 @@ jobs:
     outputs:
       source_sha: ${{ steps.version.outputs.source_sha }}
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name) }}
+          ref: ${{ format('refs/tags/{0}', github.event.release.tag_name || inputs.tag) }}
+          fetch-depth: 0
       - name: Validate release version
         id: version
         shell: bash
@@ -37,41 +44,30 @@ jobs:
             exit 1
           fi
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Reusable workflows come from the triggering ref. Manual retries must
+          # not mix a newer orchestration with scripts read from an older tag.
+          git diff --exit-code "$GITHUB_SHA" HEAD -- .github/workflows/release.yml \
+            .github/workflows/release-checks.yml .github/workflows/validate-v8.yml
+      - name: Check destination release exists and is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/release/upload-assets.mjs check-release
+      - name: Validate SDK release source configuration
+        run: node scripts/release/prepare-sdk.mjs check-config
       - name: Validate V8 release source configuration
         run: node scripts/release/prepare-v8.mjs check-config
       - name: Validate CoreCLR release source configuration
         run: node scripts/release/prepare-dotnet.mjs check-config
 
-  desktop:
+  checks:
     needs: validate
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/release-checks.yml
     with:
       source_ref: ${{ needs.validate.outputs.source_sha }}
 
-  android:
-    needs: validate
-    uses: ./.github/workflows/android.yml
-    with:
-      source_ref: ${{ needs.validate.outputs.source_sha }}
-
-  ios:
-    needs: validate
-    uses: ./.github/workflows/ios.yml
-    with:
-      source_ref: ${{ needs.validate.outputs.source_sha }}
-
-  prepare-v8:
-    needs: validate
-    permissions:
-      contents: read
-      actions: read
-    uses: ./.github/workflows/validate-v8.yml
-    with:
-      source_ref: ${{ needs.validate.outputs.source_sha }}
-      release_tag: ${{ github.event.release.tag_name }}
-
-  prepare-dotnet:
-    needs: validate
+  prepare-sdk:
+    needs: [validate, checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -80,7 +76,43 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+      - name: Collect existing SDK packages
+        run: node scripts/release/prepare-sdk.mjs prepare sdk-release-assets
+      - name: Verify SDK release set
+        run: node scripts/release/prepare-sdk.mjs verify sdk-release-assets
+      - uses: actions/upload-artifact@v6
+        with:
+          name: star-sdk-release-packages
+          compression-level: 0
+          if-no-files-found: error
+          path: sdk-release-assets/*
+
+  prepare-v8:
+    needs: [validate, checks]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/validate-v8.yml
+    with:
+      source_ref: ${{ needs.validate.outputs.source_sha }}
+      release_tag: ${{ github.event.release.tag_name || inputs.tag }}
+
+  prepare-dotnet:
+    needs: [validate, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -103,24 +135,25 @@ jobs:
           path: dotnet-release-assets/*
 
   verify-assets:
-    needs: [validate, desktop, android, ios, prepare-v8, prepare-dotnet]
+    needs: [validate, prepare-sdk, prepare-v8, prepare-dotnet]
     runs-on: ubuntu-24.04
     env:
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate.outputs.source_sha }}
       - uses: actions/download-artifact@v7
         with:
-          pattern: star-binaries-*-packages
-          merge-multiple: true
+          name: star-sdk-release-packages
           path: release-assets
       - uses: actions/download-artifact@v7
         with:
           name: star-v8-release-packages
           path: release-assets
+      - name: Verify SDK release set
+        run: node scripts/release/prepare-sdk.mjs verify release-assets
       - name: Verify V8 release set
         run: node scripts/release/prepare-v8.mjs verify release-assets
       - uses: actions/download-artifact@v7
@@ -129,27 +162,8 @@ jobs:
           path: release-assets
       - name: Verify CoreCLR release set
         run: node scripts/release/prepare-dotnet.mjs verify release-assets
-      - name: Validate release assets
-        shell: bash
-        working-directory: release-assets
-        run: |
-          set -euo pipefail
-          for triplet in x64-windows-star arm64-osx-star; do
-            for suffix in sdk release-runtime debug-runtime; do
-              package="star-binaries-$triplet-$suffix.zip"
-              test -s "$package"
-              test -s "$package.sha256"
-            done
-          done
-          for triplet in arm64-android-star x64-android-star arm64-ios-star arm64-ios-simulator-star; do
-            package="star-binaries-$triplet-sdk.zip"
-            test -s "$package"
-            test -s "$package.sha256"
-          done
-          for archive in *.zip *.tar.gz; do
-            test -s "$archive.sha256"
-          done
-          sha256sum --check --strict -- *.sha256
+      - name: Record the exact release sources and verify all assets
+        run: node scripts/release/release-set.mjs release-assets
       - uses: actions/upload-artifact@v6
         with:
           name: release-validated-assets
@@ -158,7 +172,6 @@ jobs:
           path: release-assets/*
 
   upload:
-    if: github.event_name == 'release' && github.event.action == 'published'
     needs: [validate, verify-assets]
     runs-on: ubuntu-24.04
     permissions:
@@ -166,7 +179,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:

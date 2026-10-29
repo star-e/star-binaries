@@ -1,15 +1,6 @@
-name: CoreCLR SDK
+name: Build .NET
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - dotnet-version.cmake
-      - scripts/build-dotnet.cmake
-      - scripts/package-dotnet.cmake
-      - scripts/dotnet/**
-      - tests/dotnet/**
-      - .github/workflows/dotnet.yml
   workflow_dispatch:
     inputs:
       force_rebuild:
@@ -21,7 +12,11 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    uses: ./.github/workflows/release-checks.yml
+
   build:
+    needs: checks
     name: CoreCLR ${{ matrix.target.triplet }} Release
     runs-on: ${{ matrix.target.os }}
     timeout-minutes: 180
@@ -135,6 +130,7 @@ jobs:
             out/dotnet/ci/**/Testing/Temporary/*.log
 
   mobile:
+    needs: checks
     name: CoreCLR ${{ matrix.target.triplet }} Release runtime pack
     runs-on: ${{ matrix.target.os }}
     timeout-minutes: 240

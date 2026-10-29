@@ -19,26 +19,26 @@ Build and distribute third-party C++ SDKs for star-platforms and star-engine.
 | Build or consume ordinary dependency SDKs | [Dependency SDKs](docs/dependencies.md) |
 | Build or consume V8 SDKs | [V8 SDKs](docs/v8.md) |
 | Build or validate the CoreCLR SDK | [CoreCLR SDK](docs/dotnet.md) |
-| Publish, reuse V8, retry validation | [Release guide and memo](docs/v8-release.md) |
+| Publish and reuse SDK, V8 and .NET packages | [Release guide](docs/release.md) |
 
 ## Workflows
 
-| Workflow | Purpose |
+| Manual entry | Purpose |
 | --- | --- |
-| [Build dependencies](.github/workflows/build.yml) | Build and test Windows/macOS dependency packages |
-| [Build Android dependencies](.github/workflows/android.yml) | Build both Android SDKs; execute the x64 consumer |
-| [Build iOS dependencies](.github/workflows/ios.yml) | Build both iOS SDKs; execute the simulator App |
-| [Build V8 13.6](.github/workflows/v8.yml) | Manually build V8 when build inputs change |
-| [Validate existing V8 SDKs](.github/workflows/validate-v8.yml) | Reuse SDKs and run current consumer checks without recompiling V8 |
-| [CoreCLR SDK](.github/workflows/dotnet.yml) | Validate desktop full/base SDKs; build and check Android/iOS runtime packs |
-| [Release all platforms](.github/workflows/release.yml) | Build ordinary dependencies, validate reused V8 SDKs, collect CoreCLR packages, upload all assets |
+| [Build SDK](.github/workflows/sdk.yml) | Build all six ordinary dependency targets and run their consumers |
+| [Build V8 13.6](.github/workflows/v8.yml) | Build and validate all six V8 SDKs, with Release and Debug |
+| [Build .NET](.github/workflows/dotnet.yml) | Validate desktop full/base SDKs; build and check four mobile runtime packs |
+| [Release](.github/workflows/release.yml) | Collect existing packages, validate and upload them; never rebuild libraries |
 
-Ordinary platform workflows run on pushes to `main`, pull requests, manual
-dispatches and reusable release calls. CoreCLR runs on relevant `main` changes or
-manual dispatch, reusing matching full SDK caches. V8 builds are manual. Publishing a GitHub
-Release triggers distribution; pushing a tag or saving a draft alone does not.
-CoreCLR release inputs are selected by [dotnet-release.json](dotnet-release.json):
-by default the latest complete compatible **CoreCLR SDK** run on `main`.
+Builds run only through **Run workflow**. Pushes and pull requests do not start
+workflows. Release-script checks and existing-V8 validation are internal reusable
+workflows, without separate manual entries.
+
+[release-inputs.json](release-inputs.json) selects each package family from a
+complete matching build run or a previous Release. Publishing a GitHub Release
+starts collection; **Run workflow** on Release with its existing tag retries it.
+A tag push or saving a draft does not publish packages. Archives stay separate
+by family/platform, with existing names and layouts.
 
 Consumers should pin the release tag, asset name and SHA-256. Published packages
 are corrected with a new version, rather than overwritten.
