@@ -55,15 +55,14 @@ export function dotnetVersion(root) {
 }
 
 export function dotnetPackages(version) {
-  return triplets.flatMap(triplet => {
+  return triplets.map(triplet => {
     const desktop = triplet === 'x64-windows-star' || triplet === 'arm64-osx-star';
-    return (desktop ? ['full', 'base'] : ['mobile']).map(profile => {
-      const suffix = { full: 'sdk', base: 'base-sdk', mobile: 'runtime-pack' }[profile];
-      const extension = triplet === 'x64-windows-star' ? 'zip' : 'tar.gz';
-      const base = `star-dotnet-${version.version}-${triplet}-release-${suffix}`;
-      return { triplet, profile, base, name: `${base}.${extension}`,
-        artifact: `dotnet-${triplet}-Release-${suffix}`, runtimeTested: desktop };
-    });
+    const profile = desktop ? 'full' : 'mobile';
+    const suffix = desktop ? 'sdk' : 'runtime-pack';
+    const extension = triplet === 'x64-windows-star' ? 'zip' : 'tar.gz';
+    const base = `star-dotnet-${version.version}-${triplet}-release-${suffix}`;
+    return { triplet, profile, base, name: `${base}.${extension}`,
+      artifact: `dotnet-${triplet}-Release-${suffix}`, runtimeTested: desktop };
   });
 }
 
@@ -80,10 +79,9 @@ export function selectDotnetRun(client, config, expectedFingerprint, packages) {
     validate: info => validateDotnetRun(info, client.repository) });
 }
 
-export async function validateDotnetArchive(root, file, item, version, work) {
+export async function validateDotnetArchive(file, item, version, work) {
   const checksum = await verifyChecksum(file);
   const metadata = ['provenance/build.json', 'provenance/files.sha256'];
-  if (item.profile === 'base') metadata.push('provenance/profile.json');
   const entries = extractSelected(file, work, metadata.map(name => `${item.base}/${name}`), item.base);
   const build = readJson(path.join(work, item.base, metadata[0]));
   for (const [key, value] of Object.entries({ schemaVersion: 1, upstreamVersion: version.version,
@@ -107,12 +105,6 @@ export async function validateDotnetArchive(root, file, item, version, work) {
     assert.equal(build.consumerSdk, version.consumerSdk);
     required.push(`runtime/shared/Microsoft.NETCore.App/${version.runtimeVersion}/System.Private.CoreLib.dll`,
       'include/hostfxr.h', 'share/dotnet/StarDotNetConfig.cmake');
-    if (item.profile === 'base') {
-      const profile = path.join(work, item.base, 'provenance/profile.json');
-      assert.equal(build.profileSha256, await hashFile(profile), 'Base profile checksum mismatch');
-      // Preserve the archived bytes while allowing Git's Windows CRLF checkout.
-      assert.deepEqual(readJson(profile), readJson(path.join(root, 'scripts/dotnet/profiles/base.json')), 'Base profile changed');
-    }
   }
   for (const name of required) assert(entries.includes(`${item.base}/${name}`), `Incomplete CoreCLR package: ${name}`);
   // The source workflow already checked all payloads. Recheck extracted metadata
@@ -184,7 +176,7 @@ export async function prepareDotnet({ root, output, tag, config, client }) {
         }
       }
       assertNames(input, [item.name, `${item.name}.sha256`]);
-      const sha256 = await validateDotnetArchive(root, path.join(input, item.name), item, version, path.join(input, 'metadata'));
+      const sha256 = await validateDotnetArchive(path.join(input, item.name), item, version, path.join(input, 'metadata'));
       if (previous) assert.equal(sha256, previous.assets.find(asset => asset.name === item.name).sha256, 'Reused CoreCLR asset changed');
       assets.push({ triplet: item.triplet, profile: item.profile, name: item.name, sha256, runtimeTested: item.runtimeTested });
       for (const name of [item.name, `${item.name}.sha256`]) copyFileSync(path.join(input, name), path.join(output, name));
@@ -213,7 +205,7 @@ export async function verifyDotnetSet({ root, directory, tag, repository }) {
   assert.deepEqual(actual.sort(), expected.sort(), 'Unexpected or missing CoreCLR assets');
   await withTemp(async work => {
     for (const item of dotnetPackages(version)) {
-      const sha256 = await validateDotnetArchive(root, path.join(directory, item.name), item, version, path.join(work, item.artifact));
+      const sha256 = await validateDotnetArchive(path.join(directory, item.name), item, version, path.join(work, item.artifact));
       assert.equal(sha256, manifest.assets.find(asset => asset.name === item.name).sha256, 'CoreCLR provenance checksum mismatch');
     }
   });

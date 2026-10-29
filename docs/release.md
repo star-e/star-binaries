@@ -8,7 +8,7 @@ separate. SDK, V8 and .NET archives keep their existing names and layouts.
 | --- | --- |
 | [Build SDK](../.github/workflows/sdk.yml) | Six dependency SDKs, desktop runtime packages and available symbols |
 | [Build V8 13.6](../.github/workflows/v8.yml) | Six SDKs, each containing Release and Debug |
-| [Build .NET](../.github/workflows/dotnet.yml) | Four desktop full/base SDKs and four mobile runtime packs |
+| [Build .NET](../.github/workflows/dotnet.yml) | Two desktop full SDKs and four mobile runtime packs |
 | [Release](../.github/workflows/release.yml) | Existing packages, checksums and provenance attached to a published Release |
 
 Pushes and pull requests do not start workflows. Use **Actions > Run workflow**.

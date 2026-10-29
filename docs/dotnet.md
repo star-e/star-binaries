@@ -8,8 +8,11 @@ and **iOS device/simulator arm64**; they check runtime packs without executing t
 The mobile build scripts still need their first hosted CI result. Mobile hosts
 and engine/codegen integration follow compilation and packaging.
 
-The experimental [base runtime profile](dotnet-base.md) packages a smaller library
-selection from an existing SDK. CI validates and uploads both full and base SDKs.
+Build and Release distribute complete runtimes: full desktop SDKs and intact
+mobile runtime packs. Engine development and preview use these complete inputs;
+library selection and trimming belong to the final application/game publish step.
+The experimental [base runtime profile](dotnet-base.md) remains a manual tool for
+that work; CI does not generate or publish base SDKs.
 
 [dotnet-version.cmake](../dotnet-version.cmake) pins upstream
 `v11.0.0-rc.3.26522.148` and its full commit. Our unsigned source build uses
@@ -170,19 +173,16 @@ validation for Windows/macOS, plus four mobile runtime-pack builds. Start it wit
 2. Verify the archive checksum, package provenance and payload checksums, then
    run the current consumer from a relocated directory. Cache hits are always
    revalidated; a corrupt/incompatible cache fails instead of silently rebuilding.
-3. Cache a newly built full SDK only after validation, then generate and validate
-   the base SDK using the current profile. Changing only the profile or tests
-   reuses the full SDK.
+3. Cache a newly built full SDK only after validation, then upload the full SDK.
 
-Uploads are `dotnet-<triplet>-Release-sdk`,
-`dotnet-<triplet>-Release-base-sdk` and `dotnet-<triplet>-Release-logs`.
-Each SDK is uploaded after its checks pass; the full SDK remains available if
-base packaging fails. Logs and validation receipts are uploaded even on failure.
+Uploads are `dotnet-<triplet>-Release-sdk` and `dotnet-<triplet>-Release-logs`.
+Each SDK is uploaded after its checks pass. Logs and validation receipts are
+uploaded even on failure.
 Only archives and checksums are cached, not the large source/build tree.
 Existing artifacts from the old manual workflow do not seed this cache.
 
-Desktop jobs are limited to 180 minutes; cached-SDK validation and base packaging
-each have a 30-minute step limit. Mobile jobs are limited to **240 minutes** each
+Desktop jobs are limited to 180 minutes; cached-SDK validation has a 30-minute
+step limit. Mobile jobs are limited to **240 minutes** each
 and currently build from source every run, uploading
 `dotnet-<triplet>-Release-runtime-pack` and diagnostic logs. `force_rebuild` affects
 only desktop SDK caching. Manual runs queue behind an active build for the
@@ -193,18 +193,18 @@ as validated; Windows checks and `PRINT_ARGS` do not establish macOS support.
 
 ## Release binaries
 
-[Release](../.github/workflows/release.yml) collects the existing eight packages
+[Release](../.github/workflows/release.yml) collects the existing six packages
 without rebuilding CoreCLR. Configure `dotnet` in
 [release-inputs.json](../release-inputs.json): `workflow` with `runId: "latest"`
 selects a complete compatible Build .NET run on `main`; a numeric run ID fixes
 one run, and `release` with a previous tag reuses published archives.
 
-The release includes Windows/macOS full and base SDKs, four mobile runtime packs,
+The release includes Windows/macOS full SDKs, four mobile runtime packs,
 SHA-256 sidecars and `dotnet-provenance.json`. It records exact source run/commit,
 upstream revision and per-package `runtimeTested`: desktop `true`, mobile `false`.
 The distribution remains experimental. See the [release guide](release.md) for
 source selection, retries and publication. Workflow changes affect the source
-fingerprint: run Build .NET once after adopting the manual-only workflow. Existing
+fingerprint: run Build .NET once after changing its workflow. Existing
 matching desktop SDK caches can still avoid source compilation.
 
 ## Package and consume

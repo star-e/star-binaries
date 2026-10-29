@@ -27,7 +27,7 @@ Build and distribute third-party C++ SDKs for star-platforms and star-engine.
 | --- | --- |
 | [Build SDK](.github/workflows/sdk.yml) | Build all six ordinary dependency targets and run their consumers |
 | [Build V8 13.6](.github/workflows/v8.yml) | Build and validate all six V8 SDKs, with Release and Debug |
-| [Build .NET](.github/workflows/dotnet.yml) | Validate desktop full/base SDKs; build and check four mobile runtime packs |
+| [Build .NET](.github/workflows/dotnet.yml) | Validate two desktop full SDKs; build and check four mobile runtime packs |
 | [Release](.github/workflows/release.yml) | Collect existing packages, validate and upload them; never rebuild libraries |
 
 Builds run only through **Run workflow**. Pushes and pull requests do not start

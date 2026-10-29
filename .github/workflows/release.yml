@@ -124,7 +124,7 @@ jobs:
       - name: Record CoreCLR coverage
         run: |
           echo '### CoreCLR (experimental)' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Windows/macOS full and base SDKs passed runtime checks in the source workflow.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Windows/macOS full SDKs passed runtime checks in the source workflow.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Android/iOS runtime packs passed compilation and package checks; runtime execution is not yet validated.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Source run, revisions, versions and SHA-256 are recorded in dotnet-provenance.json.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v6

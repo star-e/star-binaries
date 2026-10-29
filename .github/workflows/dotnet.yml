@@ -92,25 +92,6 @@ jobs:
           if-no-files-found: error
           overwrite: true
           path: out/dotnet/full-sdk/${{ matrix.target.triplet }}/*
-      - name: Package and validate base SDK
-        timeout-minutes: 30
-        shell: pwsh
-        env:
-          FULL_SDK_ROOT: ${{ steps.prepare.outputs.sdk_root }}
-        run: |
-          & cmake "-DSTAR_SDK_ROOT=$env:FULL_SDK_ROOT" -DPROFILE=base -P scripts/package-dotnet.cmake 2>&1 | Tee-Object out/dotnet/base-package.log
-          if ($LASTEXITCODE -ne 0) { throw 'Base SDK packaging or validation failed' }
-      - name: Upload base SDK
-        uses: actions/upload-artifact@v6
-        with:
-          name: dotnet-${{ matrix.target.triplet }}-Release-base-sdk
-          compression-level: 0
-          if-no-files-found: error
-          overwrite: true
-          path: |
-            out/dotnet/${{ matrix.target.triplet }}/Release/*-base-sdk.zip
-            out/dotnet/${{ matrix.target.triplet }}/Release/*-base-sdk.tar.gz
-            out/dotnet/${{ matrix.target.triplet }}/Release/*-base-sdk.*.sha256
       - name: Upload build and runtime diagnostics
         if: always()
         uses: actions/upload-artifact@v6
@@ -124,7 +105,6 @@ jobs:
             out/dotnet/source/artifacts/log/Release/**/*.binlog
             out/dotnet/${{ matrix.target.triplet }}/Release/**/CMakeConfigureLog.yaml
             out/dotnet/${{ matrix.target.triplet }}/Release/**/Testing/Temporary/*.log
-            out/dotnet/${{ matrix.target.triplet }}/Release/**/provenance/selection.json
             out/dotnet/ci/**/validated.json
             out/dotnet/ci/**/CMakeConfigureLog.yaml
             out/dotnet/ci/**/Testing/Temporary/*.log

@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashFile, readJson, run, withTemp } from '../../scripts/release/common.mjs';
+import { hashFile, run, withTemp } from '../../scripts/release/common.mjs';
 import { dotnetFingerprint, dotnetManifestName, dotnetPackages, dotnetVersion, localDotnetFingerprint,
   prepareDotnet, selectDotnetRun, validateDotnetArchive, validateDotnetRun, validateDotnetSource,
   verifyDotnetSet } from '../../scripts/release/prepare-dotnet.mjs';
@@ -46,13 +45,6 @@ async function createPackage(work, item, edit = build => build) {
     files[`runtime/shared/Microsoft.NETCore.App/${version.runtimeVersion}/System.Private.CoreLib.dll`] = 'fixture';
     files['include/hostfxr.h'] = 'fixture';
     files['share/dotnet/StarDotNetConfig.cmake'] = 'fixture';
-    if (item.profile === 'base') {
-      build.profile = 'base';
-      const profile = readFileSync(path.join(root, 'scripts/dotnet/profiles/base.json'), 'utf8')
-        .replace(/\r?\n/g, item.triplet === 'x64-windows-star' ? '\r\n' : '\n');
-      build.profileSha256 = createHash('sha256').update(profile).digest('hex');
-      files['provenance/profile.json'] = profile;
-    }
   }
   files['provenance/build.json'] = JSON.stringify(edit(build));
   for (const [name, content] of Object.entries(files)) write(path.join(sdk, name), content);
@@ -92,9 +84,10 @@ test('CoreCLR sources, package matrix and fingerprints are explicit', () => {
   validateDotnetSource({ schemaVersion: 1, source: 'release', tag: 'v0.1.5' }, 'v0.1.6');
   assert.throws(() => validateDotnetSource({ ...config, runId: 0 }, 'v0.1.6'));
   assert.throws(() => validateDotnetSource({ schemaVersion: 1, source: 'release', tag: 'v0.1.6' }, 'v0.1.6'));
-  assert.equal(packages.length, 8);
-  assert.equal(packages.filter(item => item.runtimeTested).length, 4);
-  assert.equal(packages.filter(item => item.name.endsWith('.tar.gz')).length, 6);
+  assert.equal(packages.length, 6);
+  assert.equal(packages.filter(item => item.runtimeTested).length, 2);
+  assert.equal(packages.filter(item => item.name.endsWith('.tar.gz')).length, 5);
+  assert(packages.every(item => item.profile !== 'base'));
   assert.equal(dotnetFingerprint(tree), localDotnetFingerprint(root));
   assert.equal(dotnetFingerprint([...tree, { path: 'docs/new.md', type: 'blob', sha: 'a'.repeat(40), mode: '100644' }]), dotnetFingerprint(tree));
   assert.notEqual(dotnetFingerprint(tree.map(entry => entry.path === 'tests/dotnet/Smoke.cs' ? { ...entry, sha: 'b'.repeat(40) } : entry)), dotnetFingerprint(tree));
@@ -128,7 +121,7 @@ test('prepare, verify and reuse a complete CoreCLR release without modifying arc
   const client = await fixtureClient(work);
   const output = path.join(work, 'prepared');
   const manifest = await prepareDotnet({ root, output, tag: 'v0.1.6', config, client });
-  assert.equal(manifest.assets.length, 8);
+  assert.equal(manifest.assets.length, 6);
   await verifyDotnetSet({ root, directory: output, tag: 'v0.1.6', repository });
   const sourceAssets = readdirSync(output).map((name, index) => ({ id: index + 1, name, state: 'uploaded' }));
   const reused = path.join(work, 'reused');
@@ -149,9 +142,15 @@ test('archive checks reject a wrong upstream revision or inflated mobile validat
     build => ({ ...build, runtimeTested: true })].entries()) {
     const item = packages.find(item => item.profile === 'mobile');
     const archive = await createPackage(path.join(work, String(index)), item, edit);
-    await assert.rejects(validateDotnetArchive(root, archive, item, version, path.join(work, `checked-${index}`)),
+    await assert.rejects(validateDotnetArchive(archive, item, version, path.join(work, `checked-${index}`)),
       /identity mismatch|must not be overstated/);
   }
+}));
+
+test('desktop release packages reject a base profile packaged as a full SDK', async () => withTemp(async work => {
+  const item = packages.find(item => item.profile === 'full');
+  const archive = await createPackage(work, item, build => ({ ...build, profile: 'base' }));
+  await assert.rejects(validateDotnetArchive(archive, item, version, path.join(work, 'checked')), /profile mismatch/);
 }));
 
 test('CoreCLR tar.gz and provenance uploads are idempotent and conflict-checked', async () => withTemp(async directory => {

@@ -2,9 +2,10 @@
 
 [`base.json`](../scripts/dotnet/profiles/base.json) defines an experimental runtime
 selection for native engine hosts, tied to [`dotnet-version.cmake`](../dotnet-version.cmake).
-The package-only entry point reuses an extracted full SDK without rebuilding
-CoreCLR. The unified [CoreCLR workflow](dotnet.md#github-actions) runs this step
-automatically after preparing a full SDK.
+This is a manual tool retained for future application/game publishing. Build .NET
+and Release distribute full SDKs and mobile runtime packs without base selection.
+Engine development and preview use the complete runtime. The package-only entry
+point below reuses an extracted full SDK without rebuilding CoreCLR.
 
 ## Package and validate
 

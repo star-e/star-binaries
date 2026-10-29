@@ -1,7 +1,7 @@
 // Tiny format fixtures only; these do not execute native or managed runtimes.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { archiveName, hashFile, linkage, localFingerprint, manifestName, readJson, run, triplets,
+import { archiveName, hashFile, linkage, localFingerprint, manifestName, run, triplets,
   v8Version } from '../../scripts/release/common.mjs';
 import { validationMode } from '../../scripts/release/prepare-v8.mjs';
 import { dotnetManifestName, dotnetPackages, dotnetVersion, localDotnetFingerprint } from '../../scripts/release/prepare-dotnet.mjs';
@@ -70,12 +70,6 @@ export async function otherFamilies(root, work, output, repository, tag) {
       build.consumerSdk = version.consumerSdk;
       files[`runtime/shared/Microsoft.NETCore.App/${version.runtimeVersion}/System.Private.CoreLib.dll`] = 'fixture';
       files['include/hostfxr.h'] = 'fixture'; files['share/dotnet/StarDotNetConfig.cmake'] = 'fixture';
-      if (item.profile === 'base') {
-        build.profile = 'base';
-        files['provenance/profile.json'] = JSON.stringify(readJson(path.join(root, 'scripts/dotnet/profiles/base.json')));
-        const profile = path.join(work, item.artifact, 'profile.json');
-        write(profile, files['provenance/profile.json']); build.profileSha256 = await hashFile(profile);
-      }
     }
     files['provenance/build.json'] = JSON.stringify(build);
     const stage = path.join(work, item.artifact);
